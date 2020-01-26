@@ -26,26 +26,61 @@ from .models import Report
 from .models import Count
 from .models import Bonus
 from .models import Attacks
-from .models import Preference
+from .models import FactionData
 from .models import Crontab
+from .models import Wall
+from .models import Territory
+from .models import Racket
+from .models import Stat
+from .models import Revive
+from .models import ReviveContract
+from .models import Attack
+from .models import AttacksBreakdown
 
 from yata.handy import timestampToDate
 
+import json
 
-class PreferenceAdmin(admin.ModelAdmin):
+
+class ReviveAdmin(admin.ModelAdmin):
+    list_display = ['contract', 'timestamp']
+
+
+admin.site.register(Revive, ReviveAdmin)
+
+
+class ReviveContractAdmin(admin.ModelAdmin):
+    list_display = ['faction', 'start', 'end', 'computing']
+
+
+admin.site.register(ReviveContract, ReviveContractAdmin)
+
+
+class AttacksBreakdownAdmin(admin.ModelAdmin):
+    list_display = ['faction', 'tss', 'tse', 'live']
+
+
+admin.site.register(AttacksBreakdown, AttacksBreakdownAdmin)
+
+
+class FactionDataAdmin(admin.ModelAdmin):
     list_display = ['__str__']
 
 
-admin.site.register(Preference, PreferenceAdmin)
+admin.site.register(FactionData, FactionDataAdmin)
 
 
 class AttacksInline(admin.TabularInline):
     model = Attacks
     extra = 0
+    show_change_link = True
+    can_delete = False
+    readonly_fields = ('tss', 'tse',)
+    exclude = ['req']
 
 
 class AttacksAdmin(admin.ModelAdmin):
-    list_display = ['report', 'date_start', 'date_end']
+    list_display = ['__str__', 'date_start', 'date_end']
 
     def report(self, instance):
         return instance.report
@@ -63,6 +98,9 @@ admin.site.register(Attacks, AttacksAdmin)
 class BonusInline(admin.TabularInline):
     model = Bonus
     extra = 0
+    show_change_link = True
+    can_delete = False
+    readonly_fields = ('tId', 'name', 'hit', 'respect', 'respectMax', 'targetId', 'targetName')
 
 
 class BonusAdmin(admin.ModelAdmin):
@@ -76,6 +114,9 @@ class CountInline(admin.TabularInline):
     model = Count
     extra = 0
     show_change_link = True
+    can_delete = False
+    readonly_fields = ('attackerId', 'name', 'hits', 'bonus', 'wins', 'respect', 'fairFight', 'war', 'retaliation', 'groupAttack', 'overseas', 'daysInFaction', 'beenThere', 'watcher', 'warhits')
+    exclude = ['graph']
 
 
 class CountAdmin(admin.ModelAdmin):
@@ -95,7 +136,7 @@ class ReportAdmin(admin.ModelAdmin):
     class Media:
         css = {'all': ('perso/css/admin.css',)}
     list_display = ['__str__']
-    inlines = [BonusInline, CountInline, AttacksInline]
+    inlines = [AttacksInline, CountInline, BonusInline]
 
 
 admin.site.register(Report, ReportAdmin)
@@ -130,6 +171,17 @@ class ChainAdmin(admin.ModelAdmin):
 admin.site.register(Chain, ChainAdmin)
 
 
+class StatAdmin(admin.ModelAdmin):
+    class Media:
+        css = {'all': ('perso/css/admin.css',)}
+
+    list_display = ['pk', 'faction', 'name']
+    search_fields = ['author']
+
+
+admin.site.register(Stat, StatAdmin)
+
+
 class MemberInline(admin.TabularInline):
     model = Member
     extra = 0
@@ -145,14 +197,15 @@ class FactionAdmin(admin.ModelAdmin):
     class Media:
         css = {'all': ('perso/css/admin.css',)}
 
-    list_display = ['tId', 'name', 'live_chain', 'ongoing_reports', 'number_of_reports', 'numberOfKeys', 'last_api_call', 'lastAPICall', 'crontabs', 'armoryRecord']
-    inlines = [ChainInline, MemberInline]
-    list_filter = ['numberOfKeys', 'armoryRecord']
+    list_display = ['tId', 'name', 'createLive', 'createReport', 'ongoing_reports', 'number_of_reports', 'numberOfKeys', 'last_api_call', 'lastAPICall', 'crontabs', 'armoryRecord']
+    # inlines = [ChainInline, MemberInline]
+    list_filter = ['createLive', 'createReport', 'armoryRecord']
     search_fields = ['name', 'tId']
+    exclude = ['factionTree', 'simuTree', 'memberStatus', 'armoryString', 'fundsString', 'networthString']
 
-    def live_chain(self, instance):
-        return(bool(len(instance.chain_set.filter(tId=0))))
-    live_chain.boolean = True
+    # def live_chain(self, instance):
+    #     return(bool(len(instance.chain_set.filter(tId=0))))
+    # live_chain.boolean = True
 
     def number_of_reports(self, instance):
         return("{}/{}".format(len(instance.chain_set.filter(hasReport=True)), len(instance.chain_set.all())))
@@ -185,3 +238,37 @@ class CrontabAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Crontab, CrontabAdmin)
+
+
+class WallAdmin(admin.ModelAdmin):
+    class Media:
+        css = {'all': ('perso/css/admin.css',)}
+
+    list_display = ['tId', 'tss', 'attackerFactionName', 'defenderFactionName', 'territory']
+
+
+admin.site.register(Wall, WallAdmin)
+
+
+class TerritoryAdmin(admin.ModelAdmin):
+    class Media:
+        css = {'all': ('perso/css/admin.css',)}
+
+    list_display = ['tId', 'faction', 'have_racket']
+    search_fields = ['tId', 'faction']
+
+    def have_racket(self, instance):
+        racket = json.loads(instance.racket)
+        if len(racket):
+            return racket.get("name")
+
+
+admin.site.register(Territory, TerritoryAdmin)
+
+
+class RacketAdmin(admin.ModelAdmin):
+    list_display = ['tId', 'name']
+    search_fields = ['tId', 'name']
+
+
+admin.site.register(Racket, RacketAdmin)

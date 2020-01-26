@@ -42,22 +42,24 @@ class Command(BaseCommand):
         # get crontab
         crontab = Crontab.objects.filter(tabNumber=crontabId).first()
         try:
-            factions = [faction for faction in crontab.faction.all()]
-        except:
+            factions = [faction for faction in crontab.faction.filter(createLive=True)]
+        except BaseException:
             print("[command.chain.livereport] no crontab found")
             return
 
         n = len(factions)
         factions = random.sample(factions, n)
 
-        for f in factions:
-            print("[command.chain.livereport] --> {}".format(f))
+        # for f in factions:
+        #     print("[command.chain.livereport] --> {}".format(f))
 
         for i, faction in enumerate(factions):
             print("[command.chain.livereport] #{}: {}".format(i + 1, faction))
 
             # get api key
             if not faction.numberOfKeys:
+                faction.createLive = False
+                faction.save()
                 print("[command.chain.livereport]    --> no api key found")
 
             else:
@@ -73,14 +75,22 @@ class Command(BaseCommand):
 
                 elif int(liveChain["current"]) < 10:
                     print('[command.chain.livereport]    --> no live report')
+                    faction.activeChain = False
+                    faction.createLive = False
                     faction.chain_set.filter(tId=0).delete()
+                    faction.save()
 
-                # elif int(liveChain["cooldown"]) > 0:
-                #     print('[command.chain.livereport]    --> chain in cooldown')
+                elif not faction.createLive:
+                    print('[command.chain.livereport]    --> creation of live report off')
+                    faction.chain_set.filter(tId=0).delete()
+                    faction.activeChain = True
+                    faction.save()
 
                 else:
                     # get chain
                     print('[command.chain.livereport]    --> live report')
+                    faction.activeChain = True
+                    faction.save()
                     chain = faction.chain_set.filter(tId=0).first()
                     if chain is None:
                         print('[command.chain.livereport]   --> create chain 0')
@@ -104,7 +114,7 @@ class Command(BaseCommand):
 
                     # update members
                     print("[command.chain.livereport]    --> udpate members")
-                    members = updateMembers(faction, key=key)
+                    members = updateMembers(faction, key=key, force=False)
                     # members = faction.member_set.all()
                     if 'apiError' in members:
                         print("[command.chain.livereport]    --> error in API continue to next chain: {}".format(members['apiError']))

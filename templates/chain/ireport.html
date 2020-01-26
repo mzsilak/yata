@@ -20,9 +20,10 @@ This file is part of yata.
 {% load static %}
 {% load humanize %}
 {% load mathfilters %}
+{% load app_filters %}
 
 {% if graph.data|length %}
-<td colspan="10">
+<td colspan="12">
     <script>
         google.charts.load('current', {'packages':['corechart']});
         google.charts.setOnLoadCallback(drawChart);
@@ -58,5 +59,16 @@ This file is part of yata.
 
     <div id="ihistogram-{{memberId}}"></div>
 </td>
-<!-- <td style="text-align: center;" id="ihistogram-close-{{memberId}}"><a href=""><i class="far fa-times-circle"></i></a></td> -->
+{% elif counts|length %}
+<td colspan="12">
+{% for c in counts %}
+    <p>Chain of <b>{{c.report.chain.start|ts2date}} ({{c.report.chain.nHits}} hits)</b>
+        <span style="margin-left:10px;"><b>{{c.wins}}</b> hit{{c.wins|pluralize}} made {%if c.report.chain.nHits%}({{c.wins|add:c.bonus|mul:100|div:c.report.chain.nHits|floatformat:2}}%){%endif%}{%if c.warhits%} {{c.warhits}} for war{%endif%}
+    </p>
+{% endfor %}
+</td>
+{% elif count is None %}
+<td colspan="12">
+    <div id="ihistogram-{{memberId}}" class="error" style="text-align: center;">No counts found...</div>
+</td>
 {% endif %}

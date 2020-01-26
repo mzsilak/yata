@@ -17,11 +17,18 @@ This file is part of yata.
     along with yata. If not, see <https://www.gnu.org/licenses/>.
 """
 
+from django.utils import timezone
 
-def apiCall(section, id, selections, key, sub=None):
+def tsnow():
+    return int(timezone.now().timestamp())
+
+def apiCall(section, id, selections, key, sub=None, verbose=True):
     import requests
+
+    key = str(key)
+
     # DEBUG live chain
-    # if selections == "chain,timestamp" and section == "faction":
+    # if selections in ["chain", "chain,timestamp"] and section == "faction":
     #     from django.utils import timezone
     #     print("[yata.function.apiCall] DEBUG chain/faction")
     #     chain = dict({"timestamp": int(timezone.now().timestamp())-4,
@@ -32,14 +39,18 @@ def apiCall(section, id, selections, key, sub=None):
     #                             "cooldown": 0,
     #                             "start": 1555211268
     #                             }})
-    #     return chain
+    #     if sub is None:
+    #         return chain
+    #     else:
+    #         return chain.get(sub)
 
     # DEBUG API error
     # return dict({"apiError": "API error code 42: debug error."})
 
     try:
         url = "https://api.torn.com/{}/{}?selections={}&key={}".format(section, id, selections, key)
-        print("[yata.function.apiCall] {}".format(url.replace("&key=" + key, "")))
+        if verbose:
+            print("[yata.function.apiCall] {}".format(url.replace("&key=" + key, "")))
         # print("[yata.function.apiCall] {}".format(url))
         r = requests.get(url)
         r.raise_for_status()
@@ -79,15 +90,26 @@ def cleanhtml(raw_html):
     return cleantext
 
 
-def returnError(type=500, msg=None):
+def returnError(type=500, msg=None, home=True):
     import traceback
     from django.utils import timezone
     from django.http import HttpResponseServerError
+    from django.http import HttpResponseForbidden
     from django.template.loader import render_to_string
 
     if type == 403:
         msg = "Permission Denied" if msg is None else msg
-        return HttpResponseServerError(render_to_string('403.html', {'exception': msg}))
+        return HttpResponseForbidden(render_to_string('403.html', {'exception': msg, 'home': home}))
     else:
         print("[{:%d/%b/%Y %H:%M:%S}] ERROR 500 \n{}".format(timezone.now(), traceback.format_exc()))
-        return HttpResponseServerError(render_to_string('500.html', {'exception': traceback.format_exc().strip()}))
+        return HttpResponseServerError(render_to_string('500.html', {'exception': traceback.format_exc().strip(), 'home': home}))
+
+
+def getPlayer(tId):
+    from player.models import Player
+
+    player = Player.objects.filter(tId=tId).first()
+    player.lastActionTS = tsnow()
+    player.active = True
+    player.save()
+    return player

@@ -21,16 +21,14 @@ from django.contrib import admin
 
 from .models import MarketData
 from .models import Item
-from .models import Preference
-#
-# from django.contrib.sessions.models import Session
-#
-#
-# class SessionAdmin(admin.ModelAdmin):
-#     list_display = ['session_key', 'expire_date']
-#
-#
-# admin.site.register(Session, SessionAdmin)
+from .models import BazaarData
+
+
+class BazaarDataAdmin(admin.ModelAdmin):
+    list_display = ['__str__']
+
+
+admin.site.register(BazaarData, BazaarDataAdmin)
 
 
 class MarketDataInline(admin.TabularInline):
@@ -38,7 +36,6 @@ class MarketDataInline(admin.TabularInline):
     extra = 0
     show_change_link = True
     readonly_fields = ('quantity', 'cost')
-
 
 
 class MarketDataAdmin(admin.ModelAdmin):
@@ -64,13 +61,6 @@ class ItemAdmin(admin.ModelAdmin):
     inlines = [MarketDataInline]
     actions = [remove_from_market, put_on_market]
     list_filter = ['onMarket', 'tType']
-
+    search_fields = ['tName', 'tId', 'tType']
 
 admin.site.register(Item, ItemAdmin)
-
-
-class PreferenceAdmin(admin.ModelAdmin):
-    list_display = ['id', 'nItems', 'lastScanTS']
-
-
-admin.site.register(Preference, PreferenceAdmin)

@@ -20,7 +20,7 @@ This file is part of yata.
 {% for k,v in allItemsOnMarket.items|dictsort:"0.lower" %}
 <div class="catch-me">
     <h2 class="title {% if view.hideType %}toggle-display rounded{% endif %}">{{v.0.display_small}} {{k}} {% if view.hideType %}&nbsp;&nbsp;<i class="fas fa-caret-right"></i>{% endif%}
-        {% if view.refreshType %}
+        {% if view.refreshType and player.tId > 0 %}
             <form class="form-inline"><a href="bazaar/updateType/{{k}}" class="flush-right update-type"><i class="fas fa-sync-alt"></i>&nbsp;Refresh all</a></form>
         {% endif %}
     </h2>
@@ -28,6 +28,6 @@ This file is part of yata.
     <div id="loop-over-item-sell-table-{{k}}" class="module" {% if view.hideType %}style="display: none;"{% endif %}>
         {% include "bazaar/loop-items.html" with itemType=k items=v %}
     </div>
-    {% if view.hideType %}<br>{% endif %}
+    {# {% if view.hideType %}<br>{% endif %} #}
 </div>
 {% endfor %}

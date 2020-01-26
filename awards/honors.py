@@ -43,8 +43,13 @@ d = {
     620: 195436798,  # OP
     156: 951557928,  # RDD
     14: 506875686,  # Slow Bomb
-    614: 0,  # Honored
-
+    614: 670053246,  # Honored
+    734: 182849928,  # Wrecked
+    288: 317742122,  # Fresh Start
+    571: 559214781,  # Chequered Past
+    334: 204652023,  # Compulsive
+    581: 832763049,  # On Track
+    
     # 1
     171: 228001376,  # Afghanistan
     172: 200538715,  # Albania
@@ -170,6 +175,8 @@ d = {
     143: 744664817,  # Pin Puller
     515: 245161575,  # Unarmed
     491: 638480635,  # Modded
+    778: 714786529,  # Specialist
+    800: 956179599,  # Surplus
 
     # 3
     39: 198010293,  # Woodland Camo
@@ -206,6 +213,7 @@ d = {
     653: 355071632,  # Smart Alec
     659: 494666789,  # Clever Dick
     651: 693932389,  # Wise Guy
+    656: 513618856,  # Whiz Kid
 
     # 5
     25: 566282329,  # Candy Man
@@ -256,6 +264,7 @@ d = {
     557: 980280221,  # Globetrotter
     541: 456129092,  # Mule
     542: 500114722,  # Smuggler
+    543: 267993904,  # Trafficker
 
     # 8
     20: 778719620,  # Precision
@@ -288,9 +297,19 @@ d = {
     228: 775225163,  # 007
     17: 230393459,  # Kill Streaker 3
     490: 733830023,  # Sidekick
-    665: 614621740,  # Boss Fight
+    665: 713628883,  # Boss Fight
     608: 990035752,  # 1337
     605: 503108099,  # Friendly Fire
+    627: 615242155,  # Manu Forti
+    739: 571800831,  # Church Mouse
+    763: 159149768,  # Bare
+    631: 160168767,  # Vae Victis
+    317: 125937483,  # Phoenix
+    740: 853474729,  # Devastation
+    488: 918833578,  # Vengeance
+    781: 235478737,  # Riddled
+    741: 257870729,  # Obliteration
+    786: 401026803,  # Annihilation
     476: 0,  # Chainer 5
 
     # 9
@@ -316,7 +335,7 @@ d = {
     234: 511356030,  # Silver Belt
     723: 907581608,  # Toned
     240: 362146978,  # Behemoth
-    242: 773994822,  # Phoenix
+    242: 907398851,  # Supersonic
     694: 978318797,  # Athletic
     241: 611520665,  # Draco
     643: 867197599,  # Powerhouse
@@ -335,6 +354,8 @@ d = {
     550: 253616541,  # Arrowshot
     638: 228161802,  # Funambulist
     498: 914416584,  # Shielded
+    690: 662053219,  # Ripped
+    704: 174689730,  # Shredded
 
     # 11
     163: 431464057,  # Fascination
@@ -350,6 +371,7 @@ d = {
     219: 534607883,  # Social Butterfly
     246: 536984897,  # Pyramid Scheme
     166: 507297243,  # Stairway To Heaven
+    375: 994774255,  # Resolution
 
     # 12
     18: 978797305,  # Another Brick In The Wall
@@ -399,6 +421,8 @@ d = {
     19: 890959235,  # Stock Analyst
     520: 415521967,  # Pious
     521: 120811903,  # Saintly
+    523: 899062871,  # Devout
+    522: 768442023,  # Sacrificial
 
     # 15
     367: 474813486,  # Clotted
@@ -413,6 +437,7 @@ d = {
     249: 359869168,  # Aiding And Abetting
     267: 856740501,  # Second Chance
     250: 689889266,  # Don't Drop It
+    322: 389182165,  # Miracle Worker
 
     # 16
     239: 275270401,  # Middleman
@@ -428,9 +453,10 @@ d = {
     678: 124870896,  # Stinker
     716: 877813810,  # Wipeout
     717: 254193787,  # Foul Play
+    743: 273202925,  # Lavish
 
     # 17
     371: 668653618,  # Protege
     664: 309095716,  # Mercenary
     636: 147013735,  # Task Master
-    }
+}

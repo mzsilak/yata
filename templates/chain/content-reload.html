@@ -23,6 +23,9 @@ This file is part of yata.
 {% if errorMessageSub %}
     {% include "yata/error.html" with errorMessage=errorMessageSub %}
 {% endif %}
+{% if validMessageSub %}
+    {% include "yata/error.html" with validMessage=validMessageSub %}
+{% endif %}
 {% if view.liveReport %}
     {% include "chain/live.html" %}
 {% endif %}
@@ -46,4 +49,25 @@ This file is part of yata.
 {% endif %}
 {% if view.armory %}
     {% include "chain/armory.html" %}
+{% endif %}
+{% if view.walls %}
+    {% include "chain/walls.html" %}
+{% endif %}
+{% if view.territories %}
+    {% include "chain/territories.html" %}
+{% endif %}
+{% if view.simu %}
+    {% include "chain/respect-simulator.html" %}
+{% endif %}
+{% if view.bigBrother %}
+    {% include "chain/big-brother.html" %}
+{% endif %}
+{% if view.contract %}
+    {% include "chain/contracts-report.html" %}
+{% endif %}
+{% if view.contracts %}
+    {% include "chain/contracts.html" %}
+{% endif %}
+{% if view.attacks %}
+    {% include "chain/attacks.html" %}
 {% endif %}

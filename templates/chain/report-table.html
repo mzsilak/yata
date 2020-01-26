@@ -25,7 +25,7 @@ This file is part of yata.
 <script>
 
 $(document).ready(function() {
-    $("#chain-report").tablesorter({cssAsc: 'up', cssDesc: 'down', sortList: [[2,1],[7,1]]});
+    $("#chain-report").tablesorter({cssAsc: 'up', cssDesc: 'down', sortList: [[2,1],[8,1]]});
 
     $("#chain-report").bind("sortStart",function() {
         $('[id^="individal-report-"]').remove();
@@ -64,6 +64,7 @@ $(document).ready(function() {
       };
 
       {% else %}
+
           var data = google.visualization.arrayToDataTable([
             ['Time', '{{graph.info.binsTime|floatformat:0}} minutes hit count', { role: 'style' }, 'total hit count'],
             {% for a,b,c in graph.data %}
@@ -71,32 +72,82 @@ $(document).ready(function() {
              {% endfor %}
           ]);
 
-          var options = {
-            // bar: {groupWidth: "100%"},
+
+            var options = {
+              // bar: {groupWidth: "100%"},
+              legend: {position: 'top', textStyle: {fontSize: 14}},
+              seriesType: 'bars',
+              series: {
+                        0: {type: 'bar', targetAxisIndex: 0, color: '#787878'},
+                        1: {type: 'line', targetAxisIndex: 1, color: '#0000cc'},
+                       },
+              'backgroundColor': 'transparent',
+              'chartArea': {'width': '90%', 'height': '70%'},
+            };
+
+        {% endif %}
+
+          var dataCrit = google.visualization.arrayToDataTable([
+            ['Time', 'Number of hits < 30s', 'Number of hits < 60s', 'Number of hits < 90s'],
+            {% for a,b,c,d in graph.dataCrit %}
+                [new Date({{a|date:"Y"}}, {{a|date:"n"|sub:"1"}}, {{a|date:"j"}}, {{a|date:"G"}}, {{a|date:"i"}}, {{a|date:"s"}}), {{b}}, {{c}}, {{d}}],
+             {% endfor %}
+          ]);
+
+          var dataStat = google.visualization.arrayToDataTable([
+            ['Number of Hits', 'Number of members'],
+            {% for a, b in graph.dataStat %}
+                [{{a}}, {{b}}],
+             {% endfor %}
+          ]);
+
+
+          var optionsCrit = {
+            bar: {groupWidth: "100%"},
+            isStacked: true,
             legend: {position: 'top', textStyle: {fontSize: 14}},
             seriesType: 'bars',
             series: {
-                      0: {type: 'bar', targetAxisIndex: 0, color: '#787878'},
-                      1: {type: 'line', targetAxisIndex: 1, color: '#0000cc'},
+                      0: {type: 'bar', targetAxisIndex: 0, color: '#cc0000'},
+                      1: {type: 'bar', targetAxisIndex: 0, color: '#FF8C00'},
+                      2: {type: 'bar', targetAxisIndex: 0, color: '#787878'},
                      },
             'backgroundColor': 'transparent',
             'chartArea': {'width': '90%', 'height': '70%'},
           };
 
-      {% endif %}
+          var optionsStat = {
+            // bar: {groupWidth: "100%"},
+            // isStacked: true,
+            legend: {position: 'top', textStyle: {fontSize: 14}},
+            seriesType: 'bars',
+            series: {
+                      0: {type: 'bar', targetAxisIndex: 0, color: '#787878'},
+                     },
+            'backgroundColor': 'transparent',
+            'chartArea': {'width': '90%', 'height': '70%'},
+          };
 
-      var view = new google.visualization.DataView(data);
-      view.setColumns([0, 1]);
+
+      // var view = new google.visualization.DataView(data);
+      // view.setColumns([0, 1]);
 
       var chart = new google.visualization.ComboChart(document.getElementById('histogram'));
-
       chart.draw(data, options);
+
+      var chartCrit = new google.visualization.ComboChart(document.getElementById('histogramCrit'));
+      chartCrit.draw(dataCrit, optionsCrit);
+
+      var chartStat = new google.visualization.ComboChart(document.getElementById('histogramStat'));
+      chartStat.draw(dataStat, optionsStat);
+
     }
+
 {% endif %}
 </script>
 
 
-{% if chain %}
+{% if chain.nAttacks %}
     <table class="center tdshadow chain-summary">
         <thead>
             {% if chain.tId > 0 %}
@@ -111,19 +162,18 @@ $(document).ready(function() {
                 <td colspan="2"><b>Chain time:</b> {{chain.end|sub:chain.start|ts2time}}</td>
             </tr>
             <tr>
-                <td colspan="2"><b>Hits / Attacks:</b> {{chain.reportNHits}} / {{chain.nAttacks}} &nbsp;&nbsp; ( {{chain.reportNHits|div:chain.nAttacks|mul:"100"|floatformat:0}}%)</td>
-                <td><b>Respect earnt:</b> {{chain.respect|floatformat:0}}</td><td><b>Respect / Attacks:</b> {{chain.respect|div:chain.nAttacks|floatformat:2}}</td>
+                <td colspan="2"><b>Hits / Attacks:</b> {{chain.reportNHits}} / {{chain.nAttacks}} &nbsp;&nbsp; ({{chain.reportNHits|div:chain.nAttacks|mul:"100"|floatformat:0}}%)</td>
+                <td><b>Respect earnt:</b> {{chain.respect|floatformat:0|intcomma}}</td><td><b>Respect / Attacks:</b> {{chain.respect|div:chain.nAttacks|floatformat:2}}</td>
             </tr>
                 {% for b in bonus %}
                     {% if forloop.counter0|divisibleby:4 %}<tr>{% endif %}
-                        <td style="text-align: center;"><b>Bonus #{{b.hit}}</b><br>{{b.name|playerURL:b.tId|safe}}</td>
+                        <td style="text-align: center;"><b>Bonus #{{b.hit}}</b><br>{{b.name|playerURL:b.tId|safe}}{% if b.targetId %}<br>on {{b.targetName|playerURL:b.targetId|safe}}{% endif %}</td>
                     {% if forloop.counter|divisibleby:4 %}</tr>{% elif forloop.last %}</tr>{% endif %}
                 {% endfor %}
         </tbody>
     </table>
     <hr class="sep">
 {% endif %}
-
 
 {% if counts|length %}
 <table class="center-large">
@@ -134,6 +184,8 @@ $(document).ready(function() {
         </th></tr>
     </thead>
 </table>
+
+{% with naturalE=chain.end|sub:chain.start|intdiv:"3000"|add:6 %}
 <table id="chain-report" class="tablesorter center-large trshadow chain-report">
     <thead>
         <tr>
@@ -142,6 +194,9 @@ $(document).ready(function() {
             <th title="Number of attacks that counted for the chain.">Number<br>of hits</th>
             <th title="Total number of attacks including losses, assists, friendly fires...">Number of<br>attacks</th>
             <th title="Number of attacks that counted for the war.">Number of<br>war hits</th>
+            {% if chain %}
+            <th title="Number of hits without counting natural energy: 6 + {{chain.end|sub:chain.start}} / 3000 = {{naturalE}}.">Number of<br>boosted hits</th>
+            {% endif %}
             <!-- <th title="Average of fair fight modifier over all hits">modifiers<br>(fair fight)</th>
             <th title="Average of war modifier over all hits">modifiers<br>(war)</th>
             <th title="Average of retaliation modifier over all hits">modifiers<br>(retaliation)</th>
@@ -158,7 +213,7 @@ $(document).ready(function() {
     <tbody>
         {% for c in counts %}
             {% if c.daysInFaction > -1 or c.wins > 0 %}
-            <tr {% if c.graph|length %}id="chain-ireport-{{chain.tId}}-{{c.attackerId}}"{% endif %} class="{% if c.daysInFaction < 0 %}kicked-members{% endif %} {% if not c.beenThere %}not-there{% endif %} {% if c.wins < 1 %}zero-hits{% endif %}" >
+            <tr id="chain-ireport-{% if c.graph|length %}{{chain.tId}}-{{c.attackerId}}{%else%}joint-{{c.attackerId}}{% endif %}" class="{% if c.daysInFaction < 0 %}kicked-members{% endif %} {% if not c.beenThere %}not-there{% endif %} {% if c.wins < 1 %}zero-hits{% endif %}" >
                 <td class="a">{{ forloop.counter }}</td>
                 <td class="b dont-touch-me">{{c.name|playerURL:c.attackerId|safe}}</td>
 
@@ -166,6 +221,10 @@ $(document).ready(function() {
                 <td class="c">{{c.wins|add:c.bonus}}</td>
                 <td class="c">{{c.hits}}</td>
                 <td class="c">{{c.warhits}}</td>
+                {% if chain %}
+                <td class="c">{{c.wins|add:c.bonus|sub:naturalE}}</td>
+                {% endif %}
+
                 {% if c.wins %}
                     <!-- <td class="c">{{c.fairFight|div:c.wins|floatformat:2}}</td> -->
                     <!-- <td class="c">{{c.war|div:c.wins|floatformat:2}}</td> -->
@@ -186,15 +245,18 @@ $(document).ready(function() {
                 {% else %}
                     <td class="c">0.00</td>
                 {% endif %}
-                <td class="c">{{c.respect|floatformat:2}}</td>
 
+            <td class="c">{{c.respect|floatformat:2}}</td>
 
             <td class="c">
-                {{c.wins|add:c.bonus|mul:100|div:totalHits|floatformat:2}}%
+                {% if totalHits %}
+                    {{c.wins|add:c.bonus|mul:100|div:totalHits|floatformat:2}}%
+                {% else %}
+                    -
+                {% endif %}
             </td>
-            <td class="c">
-                {{c.watcher|mul:100|floatformat:2}}%
-            </td>
+
+            <td class="c">{{c.watcher|mul:100|floatformat:2}}%</td>
 
             {% if c.daysInFaction < 0 %}
                 <td class="c"><i class="fas fa-sign-out-alt" title="not in the faction anymore"></i></td>
@@ -213,15 +275,21 @@ $(document).ready(function() {
         {% endfor %}
     </tbody>
 </table>
+{% endwith %}
 
 {% if graph.data|length %}
     <hr class="sep">
     <table class="center-large">
         <thead>
-            <tr><th>Number of hits over time</th></tr>
+            <tr><th>Statistics</th></tr>
         </thead>
         <tbody>
             <tr class="white"><td><div id="histogram"></div></td></tr>
+            <tr><th>Number of hits over time</th></tr>
+            <tr class="white"><td><div id="histogramCrit"></div></td></tr>
+            <tr><th>Number of critical hits over time</th></tr>
+            <tr class="white"><td><div id="histogramStat"></div></td></tr>
+            <tr><th>Members statistics</th></tr>
         </tbody>
         <tr><td style="text-align: left; overflow-wrap: break-word; overflow: auto; white-space: normal;">Each of the {{graph.data|length}} bars represents the number of hits made in a {{graph.info.binsTime|floatformat:0}} minutes window.
             Red bars correspond to critical times where the hit rate is 1 for 5 minutes (here {{graph.info.criticalHits|floatformat:0}} hit{{ graph.info.criticalHits|floatformat:0|pluralize}} for {{graph.info.binsTime|floatformat:0}} minutes).<br>
@@ -233,5 +301,8 @@ $(document).ready(function() {
             {% endif %}
         </td></tr>
     </table>
+{% elif chain.nAttacks %}
+    <hr class="sep">
+    <p class="error">No histogram found. Try to refresh it by clicking on the refresh button <i class="fas fa-sync-alt" title="Refresh report"></i> in the chain list. No need to delete and recreate it.</p>
 {% endif %}
 {% endif %}

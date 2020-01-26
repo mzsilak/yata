@@ -1,3 +1,9 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import AwardsData
+
+class AwardsDataAdmin(admin.ModelAdmin):
+    list_display = ['__str__']
+
+
+admin.site.register(AwardsData, AwardsDataAdmin)

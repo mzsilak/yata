@@ -26,7 +26,7 @@ from chain.functions import BONUS_HITS
 
 def updateAttacks(player):
     tId = player.tId
-    key = player.key
+    key = player.getKey()
     targetJson = json.loads(player.targetJson)
 
     error = False
@@ -46,7 +46,7 @@ def updateAttacks(player):
             v["defender_id"] = str(v["defender_id"])  # have to string for json key
             if v["defender_id"] == str(tId):
                 if v.get("attacker_name") is not None:
-                    attacks[k]["defender_id"] = v.get("attacker_id")
+                    attacks[k]["defender_id"] = str(v.get("attacker_id"))
                     attacks[k]["defender_name"] = v.get("attacker_name")
                     attacks[k]["bonus"] = 0
                     attacks[k]["result"] += " you"
@@ -58,6 +58,7 @@ def updateAttacks(player):
                 attacks[k]["endTS"] = int(v["timestamp_ended"])
                 attacks[k]["flatRespect"] = float(v["respect_gain"]) / float(v['modifiers']['chainBonus'])
                 attacks[k]["bonus"] = int(v["chain"])
+
             else:
                 allModifiers = 1.0
                 for mod, val in v['modifiers'].items():
@@ -70,6 +71,8 @@ def updateAttacks(player):
                 attacks[k]["flatRespect"] = float(v['modifiers']["fairFight"]) * baseRespect
                 attacks[k]["bonus"] = 0
                 attacks[k]["level"] = level
+                if int(v['modifiers']["war"]) == 2:
+                    attacks[k]["modifiers"]["fairFight"] = 0
 
         for k in remove:
             del attacks[k]
@@ -84,6 +87,40 @@ def updateAttacks(player):
         player.save()
 
     return error
+
+
+def updateRevives(player):
+    tId = player.tId
+    key = player.getKey()
+
+    error = False
+    req = apiCall('user', "", 'revives,timestamp', key)
+    if 'apiError' in req:
+        error = req
+    else:
+        revives = req.get("revives", dict({}))
+
+        # needs to convert to dict if empty because if empty returns []
+        if not len(revives):
+            revives = dict({})
+
+        # get database revives and delete 1 month old
+        player_revives = player.revive_set.all()
+        lastMonth = req.get("timestamp", 0) - 31 * 24 * 3600
+        player_revives.filter(timestamp__lt=lastMonth).delete()
+
+        for k, v in revives.items():
+            if not len(player_revives.filter(tId=int(k))) and v.get("timestamp", 0) > lastMonth:
+                del revives[k]["reviver_id"]
+                del revives[k]["reviver_name"]
+                del revives[k]["reviver_faction"]
+                del revives[k]["reviver_factionname"]
+                player.revive_set.create(tId=k, **v)
+
+        player.save()
+
+    return error
+
 
 def convertElaspedString(str):
     return str.replace("minute", "min").replace("hour", "hr").replace("second", "sec")

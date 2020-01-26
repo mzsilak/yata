@@ -40,23 +40,23 @@ class Command(BaseCommand):
         # get crontab
         crontab = Crontab.objects.filter(tabNumber=crontabId).first()
         try:
-            factions = [faction for faction in crontab.faction.all()]
-        except:
+            factions = [faction for faction in crontab.faction.filter(createReport=True)]
+        except BaseException:
             print("[command.chain.chainreport] no crontab found")
             return
 
         n = len(factions)
         factions = random.sample(factions, n)
 
-        for f in factions:
-            print("[command.chain.chainreport] --> {}".format(f))
+        # for f in factions:
+        #     print("[command.chain.chainreport] --> {}".format(f))
 
         for i, faction in enumerate(factions):
             print("[command.chain.chainreport] #{}: {}".format(i + 1, faction))
 
             # get api key
             if not faction.numberOfKeys:
-                print("[command.chain.livereport]    --> no api key found")
+                print("[command.chain.chainreport]    --> no api key found")
 
             else:
                 keyHolder, key = faction.getRandomKey()
@@ -78,7 +78,7 @@ class Command(BaseCommand):
 
                     # update members
                     print("[command.chain.chainreport]    --> udpate members")
-                    members = updateMembers(faction, key=key)
+                    members = updateMembers(faction, key=key, force=False)
                     # members = faction.member_set.all()
                     if 'apiError' in members:
                         print("[command.chain.chainreport]    --> error in API continue to next chain: {}".format(members['apiError']))
@@ -107,6 +107,11 @@ class Command(BaseCommand):
                         chain.createReport = not finished
 
                     chain.save()
+
+                    # reset number of createReport
+                    faction.createReport = bool(faction.numberOfReportsToCreate())
+                    faction.save()
+                    print('[view.chain.createReport] set faction create report to {}'.format(faction.createReport))
 
                     print("[command.chain.chainreport] end after report")
                     return

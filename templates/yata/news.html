@@ -20,7 +20,7 @@ This file is part of yata.
 
 {% if lastNews %}
     <div class="modal-topright">
-        <b>{{lastNews.type}}</b>: {{ lastNews.text|safe }}<br />
-        <i>{{lastNews.authorName}}, {{lastNews.date}}</i><form class="form-inline flush-right no-margin">{% csrf_token %}<a href="" class="news-read"><i class="fas fa-times"></i> Mark as read</a></form>
+        <i class="fas fa-info-circle"></i>&nbsp;&nbsp;{{ lastNews.text|safe }}<br />
+        <i>{{lastNews.authorName}}, {{lastNews.date}}</i><form class="form-inline flush-right no-margin">{% csrf_token %}<a href="" class="news-read"><i class="fas fa-times"></i>&nbsp;&nbsp;Mark as read</a></form>
     </div>
 {% endif %}

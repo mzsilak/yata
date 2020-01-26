@@ -18,10 +18,12 @@ This file is part of yata.
 {% endcomment %}
 
 {% load humanize %}
+{% load mathfilters %}
 {% load app_filters %}
 
 <h2 class="title">{{faction.name}} AA options</h2>
 <div class="module">
+    <h3>Keys</h3>
     <p>This is a summary of your faction's keys used for the creation of the chain reports.
         YATA picks randomly among all enabled keys to make the API calls.<br />
         If you don't want YATA to use your key you can disable it here.
@@ -39,13 +41,22 @@ This file is part of yata.
             {% for p, k in keys %}
                 <tr>{% include "chain/aa-keys.html" %}</tr>
             {% endfor %}
+            {% for id, k in keysIgnored %}
+                <tr>{% include "chain/aa-keys-ignored.html" %}</tr>
+            {% endfor %}
             {% if not faction.numberOfKeys %}
                 <tr><td colspan="3"><span class="warning"><i class="fas fa-exclamation-circle"></i>&nbsp;&nbsp;You don't have any key enabled. Your reports will never be updated.</td></tr>
             {% endif %}
         </tbody>
     </table>
-    <br class="sep">
+
+    <h3>Chains threshold</h3>
     {% include "chain/aa-threshold.html" %}
+
+    <h3>Poster</h3>
+    <form>{% csrf_token %}
+        {% include "chain/aa-poster.html" %}
+    </form>
 </div>
 
 <h2 class="title">Crontab</h2>

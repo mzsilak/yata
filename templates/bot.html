@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block css%}
+    <link rel="stylesheet" type="text/css" href={% static "perso/css/bot.css" %} />
+{% endblock%}
+
+{% block title%}
+    - Discord bot
+{% endblock %}
+
+{% block jquery %}
+<script>
+
+    // update discord id
+    $(document).on('click', '#discord-update-id', function(e){
+        e.preventDefault();
+        var reload = $("#discord-id");
+        reload.load( "/bot/updateId/", {
+            csrfmiddlewaretoken: document.getElementsByName('csrfmiddlewaretoken')[0].value,
+        });
+        reload.html('<p><i class="fas fa-spinner fa-pulse"></i></p>');
+    });
+
+    // toggle perm
+    $(document).on('click', '#discord-toggle-perm', function(e){
+        e.preventDefault();
+        // var r = confirm("I accept to give the official YATA bot access to my API key");
+        var r = true;
+        if (r == true) {
+          var reload = $("#discord-perm");
+          reload.load( "/bot/togglePerm/", {
+              csrfmiddlewaretoken: document.getElementsByName('csrfmiddlewaretoken')[0].value,
+          });
+          reload.html('<p><i class="fas fa-spinner fa-pulse"></i></p>');
+        }
+    });
+
+    // toggle notifications
+    $(document).on('click', "td[id^='discord-toggle-pref-']", function(e){
+        e.preventDefault();
+        var reload = $(this);
+        var type = reload.attr("id").split("-").pop()
+        reload.load( "/bot/toggleNoti/", {
+            type: type,
+            csrfmiddlewaretoken: document.getElementsByName('csrfmiddlewaretoken')[0].value,
+        }).html('<i class="fas fa-spinner fa-pulse"></i>');
+    });
+
+    // show/hide command
+    $(document).on('click', 'h1.module-doc, h2.command-doc', function(e){
+        e.preventDefault();
+        // get h2 and div
+        var h = $(this);
+        console.log(h);
+        var d = $(this).next("div");
+        var i = h.find("i[class^='fas fa-caret']");
+        d.slideToggle("fast", function(){
+            if (d.css("display") == "none") {
+                i.removeClass("fa-rotate-90");
+            } else {
+                i.addClass("fa-rotate-90");
+            }
+        });
+    });
+
+
+    // // update discord id
+    // $(document).on('click', '[id^=pref-toggle-]', function(e){
+    //     e.preventDefault();
+    //     var type = $(this).attr('id').split('-').pop();
+    //     $(this).load( "/bot/togglePref/"+type+"/", {
+    //         csrfmiddlewaretoken: document.getElementsByName('csrfmiddlewaretoken')[0].value,
+    //     });
+    //     $(this).html('<i class="fas fa-spinner fa-pulse"></i>');
+    // });
+
+</script>
+{% endblock %}
+
+{% block content %}
+    <div id="content-update">
+        {% include "bot/content-reload.html" %}
+    </div>
+{% endblock %}

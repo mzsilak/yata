@@ -21,12 +21,15 @@ from django.utils import timezone
 
 from yata.handy import apiCall
 from yata.handy import timestampToDate
+from chain.models import FactionData
 from chain.models import Member
+from player.models import Player
 
 import requests
 import time
 import numpy
 import json
+import random
 
 
 # global bonus hits
@@ -48,12 +51,10 @@ def getBonusHits(hitNumber, ts):
 
 
 def apiCallAttacks(faction, chain, key=None):
-    # WARNING no fallback for this method if api crashed. Will yeld server error.
-    # WINS = ["Arrested", "Attacked", "Looted", "None", "Special", "Hospitalized", "Mugged"]
-
     # get faction
     factionId = faction.tId
     beginTS = chain.start
+    beginTSPreviousStep = 0
     endTS = chain.end
     report = chain.report_set.first()
 
@@ -61,20 +62,27 @@ def apiCallAttacks(faction, chain, key=None):
     keys = faction.getAllPairs(enabledKeys=True)
 
     # add + 2 s to the endTS
-    endTS += 1
+    endTS += 2
 
-    # init
-    chainDict = dict({})
-    feedAttacks = True
-    i = 1
-
-    nAPICall = 0
-    # key = None
+    # init variables
+    chainDict = dict({})  # returned dic of attacks
+    feedAttacks = True  # set if the report is over or not
+    i = 1  # indice for the number of iteration (db + api calls)
+    nAPICall = 0  # indice for the number of api calls
     tmp = ""
-    while feedAttacks and nAPICall < faction.nAPICall:
-        # try to get req from database
-        tryReq = report.attacks_set.filter(tss=beginTS).first()
 
+    allReq = report.attacks_set.all()
+    while feedAttacks and nAPICall < faction.nAPICall:
+
+        # SANITY CHECK 0: ask for same beginTS than previous chain
+        # shouldn't happen because fedback = False if so (see below)
+        if beginTS - beginTSPreviousStep <= 0:
+            print("[function.chain.apiCallAttacks] \t[WARNING] will ask for same beginTS next iteration")
+
+        # try to get req from database
+        tryReq = allReq.filter(tss=beginTS).first()
+
+        # take attacks from torn API
         if tryReq is None:
             if key is None:
                 keyToUse = keys[i % len(keys)][1]
@@ -92,70 +100,103 @@ def apiCallAttacks(faction, chain, key=None):
                 tsDiff = int(timezone.now().timestamp()) - faction.lastAPICall
 
             nAPICall += 1
-            url = "https://api.torn.com/faction/{}?selections=attacks,timestamp&key={}&from={}&to={}".format(faction.tId, keyToUse, beginTS, endTS)
             print("[function.chain.apiCallAttacks] \tFrom {} to {}".format(timestampToDate(beginTS), timestampToDate(endTS)))
-            print("[function.chain.apiCallAttacks] \tnumber {}: {}".format(nAPICall, url.replace("&key=" + keyToUse, "")))
-            req = requests.get(url).json()
-            faction.lastAPICall = int(req.get("timestamp", timezone.now().timestamp()))
+            # make the API call
+            selection = "attacks,timestamp&from={}&to={}".format(beginTS, endTS)
+            req = apiCall("faction", faction.tId, selection, keyToUse, verbose=False)
+
+            # get timestamps
+            reqTS = int(timezone.now().timestamp())
+            tornTS = int(req.get("timestamp", 0))
+
+            # save payload
+            faction.lastAPICall = int(req.get("timestamp", reqTS))
             faction.save()
+
+            # check if no api call
             if 'error' in req:
                 chainDict["apiError"] = "API error code {}: {}.".format(req["error"]["code"], req["error"]["error"])
                 chainDict["apiErrorCode"] = int(req["error"]["code"])
                 break
 
+            # get attacks from api request
             attacks = req.get("attacks", dict({}))
 
-            if len(attacks):
-                report.attacks_set.create(tss=beginTS, tse=endTS, req=json.dumps([attacks]))
+            print("[function.chain.apiCallAttacks] \ttornTS={}, reqTS={} diff={}".format(tornTS, reqTS, tornTS - reqTS))
 
+            # SANITY CHECK 1: empty payload
+            if not len(attacks):
+                print("[function.chain.apiCallAttacks] \t[WARNING] empty payload (blank turn)")
+                break
+
+            # SANITY CHECK 2: api timestamp delayed from now
+            elif abs(tornTS - reqTS) > 25:
+                print("[function.chain.apiCallAttacks] \t[WARNING] returned cache response from API tornTS={}, reqTS={} (blank turn)".format(tornTS, reqTS))
+                break
+
+            # SANITY CHECK 3: check if payload different than previous call
+            elif json.dumps([attacks]) == tmp:
+                print("[function.chain.apiCallAttacks] \t[WARNING] same response as before (blank turn)")
+                break
+
+            else:
+                tmp = json.dumps([attacks])
+
+            # all tests passed: push attacks in the database
+            report.attacks_set.create(tss=beginTS, tse=endTS, req=json.dumps([attacks]))
+
+        # take attacks from the database
         else:
             print("[function.chain.apiCallAttacks] iteration #{} from database".format(i))
             print("[function.chain.apiCallAttacks] \tFrom {} to {}".format(timestampToDate(beginTS), timestampToDate(endTS)))
             attacks = json.loads(tryReq.req)[0]
 
-        if json.dumps([attacks]) == tmp:
-            print("[function.chain.apiCallAttacks] \tWarning same response as before")
-            report.attacks_set.filter(tss=beginTS).all().delete()
-            chainDict["error"] = "same response"
-            break
-        else:
-            tmp = json.dumps([attacks])
+        # filter all attacks and compute new TS
+        beginTSPreviousStep = beginTS
+        beginTS = 0
+        chainCounter = 0
+        for k, v in attacks.items():
+            if v["defender_faction"] != factionId:
+                chainDict[k] = v  # dictionnary of filtered attacks
+                chainCounter = max(v["chain"], chainCounter)  # get max chain counter
+                beginTS = max(v["timestamp_started"], beginTS)  # get latest timestamp
 
-        tableTS = []
-        maxHit = 0
-        if len(attacks):
-            for j, (k, v) in enumerate(attacks.items()):
-                if v["defender_faction"] != factionId:
-                    chainDict[k] = v
-                    maxHit = max(v["chain"], maxHit)
-                    # print(v["timestamp_started"])
-                    tableTS.append(v["timestamp_started"])
-                    # beginTS = max(beginTS, v["timestamp_started"])
-                    # feedattacks = True if int(v["timestamp_started"])-beginTS else False
-                    # print(chain.nHits, v["chain"])
-                # print(v["chain"], maxHit, chain.nHits)
-            # if(len(attacks) < 2):
-                # feedAttacks = False
-
-            if chain.tId:
-                feedAttacks = not chain.nHits == maxHit
-            else:
-                feedAttacks = len(attacks) > 95
-            beginTS = max(tableTS)
-            print("[function.chain.apiCallAttacks] \tattacks={} count={} beginTS={}, endTS={} feed={}".format(len(attacks), maxHit, beginTS, endTS, feedAttacks))
-            i += 1
-        else:
-            print("[function.chain.apiCallAttacks] call number {}: {} attacks".format(i, len(attacks)))
+        # stoping criterion if same timestamp
+        if beginTS - beginTSPreviousStep <= 0:
             feedAttacks = False
+            print("[function.chain.apiCallAttacks] stopped chain because was going to ask for the same timestamp")
 
-        # check if attack timestamp out of bound
+        # stoping criterion too many attack requests
+        if i > 1500:
+            feedAttacks = False
+            print("[function.chain.apiCallAttacks] stopped chain because too many iterations")
+
+        # stoping criterion for walls
+        elif chain.wall:
+            feedAttacks = len(attacks) > 10
+
+        # stoping criterion for regular reports
+        elif chain.tId:
+            feedAttacks = not chain.nHits == chainCounter
+
+        # stoping criterion for live reports
+        else:
+            feedAttacks = len(attacks) > 95
+
+        print("[function.chain.apiCallAttacks] \tattacks={} chainCounter={} beginTS={}, endTS={} feed={}".format(len(attacks), chainCounter, beginTS, endTS, feedAttacks))
+        i += 1
+
+        # SANITY CHECK 4: check if timestamps are out of bounds
         if chain.start > beginTS or chain.end < beginTS:
-            print("[function.chain.apiCallAttacks] ERRORS Attacks out of bounds: chain.starts = {} < beginTS = {} w chain.end = {}".format(chain.start, beginTS, endTS))
-            print("[function.chain.apiCallAttacks] ERRORS Attacks out of bounds: chain.starts = {} < beginTS = {} w chain.end = {}".format(timestampToDate(chain.start), timestampToDate(beginTS), timestampToDate(endTS)))
+            print("[function.chain.apiCallAttacks] ERRORS Attacks out of bounds: chain.starts = {} < beginTS = {} < chain.end = {}".format(chain.start, beginTS, endTS))
+            print("[function.chain.apiCallAttacks] ERRORS Attacks out of bounds: chain.starts = {} < beginTS = {} < chain.end = {}".format(timestampToDate(chain.start), timestampToDate(beginTS), timestampToDate(endTS)))
             report.attacks_set.last().delete()
             print('[function.chain.apiCallAttacks] Deleting last attacks and exiting')
             return chainDict
 
+    print('[function.chain.apiCallAttacks] stop iterating')
+
+    # potentially delete last set of attacks for live chains
     if not chain.tId:
         try:
             lastAttacks = report.attacks_set.last()
@@ -165,8 +206,14 @@ def apiCallAttacks(faction, chain, key=None):
                 print('[function.chain.apiCallAttacks] Delete last attacks for live chains')
             else:
                 print('[function.chain.apiCallAttacks] Not delete last attacks for live chains since length = {}'.format(n))
-        except:
+        except BaseException:
             pass
+
+    # special case for walls
+    if chain.wall and not feedAttacks:
+        print('[function.chain.apiCallAttacks] set chain createReport to False')
+        chain.createReport = False
+        chain.save()
 
     return chainDict
 
@@ -174,9 +221,10 @@ def apiCallAttacks(faction, chain, key=None):
 def fillReport(faction, members, chain, report, attacks):
 
     # initialisation of variables before loop
-    nWRA = [0, 0.0, 0]  # number of wins, respect and attacks
+    nWRA = [0, 0.0, 0, 0]  # number of wins, respect and attacks, max count (should be = to number of wins)
     bonus = []  # chain bonus
     attacksForHisto = []  # record attacks timestamp histogram
+    attacksCriticalForHisto = dict({"30": [], "60": [], "90": []})  # record critical attacks timestamp histogram
 
     # create attackers array on the fly to avoid db connection in the loop
     attackers = dict({})
@@ -211,7 +259,7 @@ def fillReport(faction, members, chain, report, attacks):
         if(int(v['attacker_faction']) == faction.tId):
             # if attacker not part of the faction at the time of the call
             if attackerID not in attackers:
-                print('[function.chain.fillReport] hitter out of faction: {} [{}]'.format(attackerName, attackerID))
+                # print('[function.chain.fillReport] hitter out of faction: {} [{}]'.format(attackerName, attackerID))
                 attackers[attackerID] = [0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1, attackerName, 0, 0, 0]  # add out of faction attackers on the fly
 
             attackers[attackerID][0] += 1
@@ -232,8 +280,18 @@ def fillReport(faction, members, chain, report, attacks):
                 lastTS = v['timestamp_ended'] if lastTS == 0 else lastTS
 
                 # compute chain watcher version 2
-                attackers[attackerID][11] += (v['timestamp_ended'] - lastTS)
+                timeSince = v['timestamp_ended'] - lastTS
+                attackers[attackerID][11] += timeSince
                 lastTS = v['timestamp_ended']
+
+                # add to critical attack
+                timeLeft = max(300 - timeSince, 0)
+                if timeLeft < 30:
+                    attacksCriticalForHisto["30"].append(v['timestamp_ended'])
+                elif timeLeft < 60:
+                    attacksCriticalForHisto["60"].append(v['timestamp_ended'])
+                elif timeLeft < 90:
+                    attacksCriticalForHisto["90"].append(v['timestamp_ended'])
 
                 attacksForHisto.append(v['timestamp_ended'])
                 if attackerID in attackersHisto:
@@ -243,12 +301,13 @@ def fillReport(faction, members, chain, report, attacks):
 
                 nWRA[0] += 1
                 nWRA[1] += respect
+                nWRA[3] = max(chainCount, nWRA[3])
 
                 if v['chain'] in BONUS_HITS:
                     attackers[attackerID][12] += 1
                     r = getBonusHits(v['chain'], v["timestamp_ended"])
                     print('[function.chain.fillReport] bonus {}: {} respects'.format(v['chain'], r))
-                    bonus.append((v['chain'], attackerID, attackerName, respect, r))
+                    bonus.append((v['chain'], attackerID, attackerName, respect, r, v.get('defender_id', '0'), v.get('defender_name', 'Unkown')))
                 else:
                     attackers[attackerID][1] += 1
                     attackers[attackerID][2] += float(v['modifiers']['fairFight'])
@@ -296,21 +355,35 @@ def fillReport(faction, members, chain, report, attacks):
     print('[function.chain.fillReport] chain delta time: {} second'.format(diff))
     print('[function.chain.fillReport] histogram bins delta time: {} second'.format(binsGapMinutes * 60))
     print('[function.chain.fillReport] histogram number of bins: {}'.format(len(bins) - 1))
+
+    # fill attack histogram
     histo, bin_edges = numpy.histogram(attacksForHisto, bins=bins)
     binsCenter = [int(0.5 * (a + b)) for (a, b) in zip(bin_edges[0:-1], bin_edges[1:])]
+    chain.graph = ','.join(['{}:{}'.format(a, b) for (a, b) in zip(binsCenter, histo)])
+
+    # fill 30, 60, 90s critical attacks histogram
+    histo30, _ = numpy.histogram(attacksCriticalForHisto["30"], bins=bins)
+    histo60, _ = numpy.histogram(attacksCriticalForHisto["60"], bins=bins)
+    histo90, _ = numpy.histogram(attacksCriticalForHisto["90"], bins=bins)
+    chain.graphCrit = ','.join(['{}:{}:{}'.format(a, b, c) for (a, b, c) in zip(histo30, histo60, histo90)])
+
     chain.reportNHits = nWRA[0]
-    if not chain.tId:
+    if not chain.tId or chain.wall:
         chain.nHits = nWRA[0]  # update for live chains
         chain.respect = nWRA[1]  # update for live chains
     chain.nAttacks = nWRA[2]
-    chain.graph = ','.join(['{}:{}'.format(a, b) for (a, b) in zip(binsCenter, histo)])
     chain.lastUpdate = int(timezone.now().timestamp())
     chain.save()
 
     # fill the database with counts
     print('[function.chain.fillReport] fill database with counts')
     report.count_set.all().delete()
+    hitsForStats = []
     for k, v in attackers.items():
+        # for stats later
+        if v[1]:
+            hitsForStats.append(v[1])
+
         # time now - chain end - days old: determine if member was in the fac for the chain
         delta = int(timezone.now().timestamp()) - chain.end - v[9] * 24 * 3600
         beenThere = True if (delta < 0 or v[9] < 0) else False
@@ -353,18 +426,39 @@ def fillReport(faction, members, chain, report, attacks):
                                 watcher=watcher,
                                 warhits=v[13])
 
+    # create attack stats
+    stats, statsBins = numpy.histogram(hitsForStats, bins=32)
+    statsBinsCenter = [int(0.5 * (a + b)) for (a, b) in zip(statsBins[0:-1], statsBins[1:])]
+    graphStats = ','.join(['{}:{}'.format(a, b) for (a, b) in zip(statsBinsCenter, stats)])
+    chain.graphStat = graphStats
+
     # fill the database with bonus
     print('[function.chain.fillReport] fill database with bonus')
     report.bonus_set.all().delete()
     for b in bonus:
-        report.bonus_set.create(hit=b[0], tId=b[1], name=b[2], respect=b[3], respectMax=b[4])
+        report.bonus_set.create(hit=b[0], tId=b[1], name=b[2], respect=b[3], respectMax=b[4], targetId=b[5], targetName=b[6])
 
-    return chain, report, (binsCenter, histo), chain.nHits <= nWRA[0]
+    if chain.wall:
+        finished = not chain.createReport
+    else:
+        # finished = chain.nHits <= nWRA[0]
+        if nWRA[0] != nWRA[3]:
+            print('[function.chain.fillReport] ERROR in counts: #Wins = {} and maxCount = {}'.format(nWRA[0], nWRA[3]))
+        finished = chain.nHits <= nWRA[3]
+
+    return chain, report, (binsCenter, histo), finished
 
 
-def updateMembers(faction, key=None):
+def updateMembers(faction, key=None, force=True, indRefresh=False):
     # it's not possible to delete all memebers and recreate the base
     # otherwise the target list will be lost
+
+    now = int(timezone.now().timestamp())
+
+    # don't update if less than 1 hour ago and force is False
+    if not force and (now - faction.membersUpda) < 3600:
+        print("[function.chain.updateMembers] skip update member")
+        return faction.member_set.all()
 
     # get key
     if key is None:
@@ -374,37 +468,79 @@ def updateMembers(faction, key=None):
         print("[function.chain.updateMembers] using personal key")
 
     # call members
-    membersAPI = apiCall('faction', faction.tId, 'basic', key, sub='members')
+    membersAPI = faction.updateMemberStatus()
     if 'apiError' in membersAPI:
         return membersAPI
 
     membersDB = faction.member_set.all()
     for m in membersAPI:
         memberDB = membersDB.filter(tId=m).first()
+
+        # faction member already exists
         if memberDB is not None:
-            # print('[VIEW members] member {} [{}] updated'.format(membersAPI[m]['name'], m))
+            # update basics
             memberDB.name = membersAPI[m]['name']
-            memberDB.lastAction = membersAPI[m]['last_action']
+            memberDB.lastAction = membersAPI[m]['last_action']['relative']
+            memberDB.lastActionTS = membersAPI[m]['last_action']['timestamp']
             memberDB.daysInFaction = membersAPI[m]['days_in_faction']
-            tmp = [s for s in membersAPI[m]['status'] if s]
-            memberDB.status = ", ".join(tmp)
+
+            # update status
+            memberDB.updateStatus(**membersAPI[m]['status'])
+
+            # update energy/NNB
+            player = Player.objects.filter(tId=memberDB.tId).first()
+            if player is None:
+                memberDB.shareE = -1
+                memberDB.energy = 0
+                memberDB.shareN = -1
+                memberDB.nnb = 0
+                memberDB.arson = 0
+            else:
+                if indRefresh and memberDB.shareE and memberDB.shareN:
+                    req = apiCall("user", "", "perks,bars,crimes", key=player.getKey())
+                    memberDB.updateEnergy(key=player.getKey(), req=req)
+                    memberDB.updateNNB(key=player.getKey(), req=req)
+                elif indRefresh and memberDB.shareE:
+                    memberDB.updateEnergy(key=player.getKey())
+                elif indRefresh and memberDB.shareN:
+                    memberDB.updateNNB(key=player.getKey())
+
             memberDB.save()
-            faction.membersUpda = int(timezone.now().timestamp())
+
+        # member exists but from another faction
         elif Member.objects.filter(tId=m).first() is not None:
             # print('[VIEW members] member {} [{}] change faction'.format(membersAPI[m]['name'], m))
             memberTmp = Member.objects.filter(tId=m).first()
             memberTmp.faction = faction
             memberTmp.name = membersAPI[m]['name']
-            memberTmp.lastAction = membersAPI[m]['last_action']
+            memberTmp.lastAction = membersAPI[m]['last_action']['relative']
+            memberTmp.lastActionTS = membersAPI[m]['last_action']['timestamp']
             memberTmp.daysInFaction = membersAPI[m]['days_in_faction']
-            tmp = [s for s in membersAPI[m]['status'] if s]
-            memberTmp.status = ", ".join(tmp)
+            memberTmp.updateStatus(**membersAPI[m]['status'])
+
+            # set shares to 0
+            player = Player.objects.filter(tId=memberTmp.tId).first()
+            memberTmp.shareE = -1 if player is None else 0
+            memberTmp.shareN = -1 if player is None else 0
+            memberTmp.energy = 0
+            memberTmp.nnb = 0
+            memberTmp.arson = 0
+
             memberTmp.save()
-            faction.membersUpda = int(timezone.now().timestamp())
+
+        # new member
         else:
             # print('[VIEW members] member {} [{}] created'.format(membersAPI[m]['name'], m))
-            tmp = [s for s in membersAPI[m]['status'] if s]
-            faction.member_set.create(tId=m, name=membersAPI[m]['name'], lastAction=membersAPI[m]['last_action'], daysInFaction=membersAPI[m]['days_in_faction'], status=", ".join(tmp))
+            player = Player.objects.filter(tId=m).first()
+            memberNew = faction.member_set.create(
+                tId=m, name=membersAPI[m]['name'],
+                lastAction=membersAPI[m]['last_action']['relative'],
+                lastActionTS=membersAPI[m]['last_action']['timestamp'],
+                daysInFaction=membersAPI[m]['days_in_faction'],
+                shareE=-1 if player is None else 0,
+                shareN=-1 if player is None else 0,
+                )
+            memberNew.updateStatus(**membersAPI[m]['status'])
 
     # delete old members
     for m in membersDB:
@@ -418,6 +554,7 @@ def updateMembers(faction, key=None):
             # print("[function.chain.updateMembers] delete AA key {}".format(id))
             faction.delKey(id)
 
+    faction.membersUpda = now
     faction.save()
     return faction.member_set.all()
 
@@ -444,21 +581,28 @@ def factionTree(faction, key=None):
 
     # get key
     if key is None:
-        name, key = faction.getRandomKey()
-        print("[function.chain.updateMembers] using {} key".format(name))
+        keyHolder, key = faction.getRandomKey()
+        if keyHolder == "0":
+            print("[function.chain.factionTree] no master key".format(keyHolder))
+            faction.posterHold = False
+            faction.poster = False
+            faction.save()
+            return 0
+
     else:
-        print("[function.chain.updateMembers] using personal key")
+        keyHolder is False
+        # print("[function.chain.updateMembers] using personal key")
 
     # call for upgrades
-    upgrades = apiCall('faction', faction.tId, 'upgrades', key, sub='upgrades')
-    if 'apiError' in upgrades:
-        print('[function.chain.factionTree] api key error: {}'.format((upgrades['apiError'])))
+    req = apiCall('faction', faction.tId, 'basic,upgrades', key, verbose=False)
+    if 'apiError' in req:
+        if req['apiErrorCode'] in API_CODE_DELETE and keyHolder:
+            print("[function.chain.factionTree]    --> deleting {}'s key'".format(keyHolder))
+            faction.delKey(keyHolder)
+        # print('[function.chain.factionTree] api key error: {}'.format((faction['apiError'])))
         return 0
 
-    faction = apiCall('faction', faction.tId, 'basic', key)
-    if 'apiError' in faction:
-        print('[function.chain.factionTree] api key error: {}'.format((faction['apiError'])))
-        return 0
+    upgrades = req["upgrades"]
 
     # building upgrades tree
     tree = dict({})
@@ -470,32 +614,32 @@ def factionTree(faction, key=None):
 
     # create image background
     background = tuple(posterOpt.get('background', (0, 0, 0, 0)))
-    print("[function.chain.factionTree] background color: {}".format(background))
+    # print("[function.chain.factionTree] background color: {}".format(background))
     img = Image.new('RGBA', (5000, 5000), color=background)
 
     # choose font
     fontFamily = posterOpt.get('fontFamily', [0])[0]
     fntId = {i: [f, int(f.split("__")[1].split(".")[0])] for i, f in enumerate(sorted(os.listdir(settings.STATIC_ROOT + '/perso/font/')))}
     # fntId = {0: 'CourierPolski1941.ttf', 1: 'JustAnotherCourier.ttf'}
-    print("[function.chain.factionTree] fontFamily: {} {}".format(fontFamily, fntId[fontFamily]))
+    # print("[function.chain.factionTree] fontFamily: {} {}".format(fontFamily, fntId[fontFamily]))
     fntBig = ImageFont.truetype(settings.STATIC_ROOT + '/perso/font/' + fntId[fontFamily][0], fntId[fontFamily][1] + 10)
     fnt = ImageFont.truetype(settings.STATIC_ROOT + '/perso/font/' + fntId[fontFamily][0], fntId[fontFamily][1])
     d = ImageDraw.Draw(img)
 
     fontColor = tuple(posterOpt.get('fontColor', (0, 0, 0, 255)))
-    print("[function.chain.factionTree] fontColor: {}".format(fontColor))
+    # print("[function.chain.factionTree] fontColor: {}".format(fontColor))
 
     # add title
-    txt = "{}".format(faction["name"])
+    txt = "{}".format(req["name"])
     d.text((10, 10), txt, font=fntBig, fill=fontColor)
     x, y = d.textsize(txt, font=fntBig)
 
-    txt = "{:,} respect\n".format(faction["respect"])
+    txt = "{:,} respect\n".format(req["respect"])
     d.text((x + 20, 20), txt, font=fnt, fill=fontColor)
     x, y = d.textsize(txt, font=fntBig)
 
     iconType = posterOpt.get('iconType', [0])[0]
-    print("[function.chain.factionTree] iconType: {}".format(iconType))
+    # print("[function.chain.factionTree] iconType: {}".format(iconType))
     for branch, upgrades in tree.items():
         icon = Image.open(settings.STATIC_ROOT + '/trees/tier_unlocks_b{}_t{}.png'.format(bridge[branch], iconType))
         icon = icon.convert("RGBA")
@@ -512,8 +656,288 @@ def factionTree(faction, key=None):
         x = max(xTmp, x)
         y += yTmp
 
-        print('[function.chain.factionTree] {} ({} upgrades)'.format(branch, len(upgrades)))
+        # print('[function.chain.factionTree] {} ({} upgrades)'.format(branch, len(upgrades)))
 
     # img.crop((0, 0, x + 90 + 10, y + 10 + 10)).save(url)
     img.crop((0, 0, x + 90 + 10, y)).save(url)
-    print('[function.chain.factionTree] image saved {}'.format(url))
+    # print('[function.chain.factionTree] image saved {}'.format(url))
+
+
+def updateFactionTree(faction, key=None, force=False, reset=False):
+    # it's not possible to delete all memebers and recreate the base
+    # otherwise the target list will be lost
+
+    now = int(timezone.now().timestamp())
+
+    # don't update if less than 24h ago and force is False
+    if not force and (now - faction.treeUpda) < 24 * 3600:
+        print("[function.chain.updateFactionTree] skip update tree")
+        if faction.simuTree in ["{}"]:
+            print("[function.chain.updateFactionTree] set simuTree as faction tree")
+            faction.simuTree = faction.factionTree
+            faction.save()
+        # return faction.faction.all()
+    else:
+
+        # call upgrade Tree
+        tornTree = json.loads(FactionData.objects.first().upgradeTree)
+        # basic needed for respect
+        # upgrades needed for upgrades daaa
+        # stats needed for challenges
+        factionCall = apiCall('faction', faction.tId, 'basic,upgrades,stats', key)
+        if 'apiError' in factionCall:
+            print("[function.chain.updateFactionTree] api key error {}".format(factionCall['apiError']))
+        else:
+            print("[function.chain.updateFactionTree] update faction tree")
+            factionTree = factionCall.get('upgrades')
+            orders = dict({})
+            for i in range(48):
+                id = str(i + 1)
+
+                # skip id = 8 for example #blameched
+                if id not in tornTree:
+                    continue
+
+                # create branches that are not in faction tree
+                branch = tornTree[id]["1"]['branch']
+                if id not in factionTree:
+                    factionTree[id] = {'branch': branch, 'branchorder': 0, 'branchmultiplier': 0, 'name': tornTree[id]["1"]['name'], 'level': 0, 'basecost': 0, 'challengedone': 0}
+
+                # put core branch to branchorder 1
+                if branch in ['Core']:
+                    factionTree[id]['branchorder'] = 1
+
+                # consistency in the branchorder for the
+                if branch in orders:
+                    orders[branch] = max(factionTree[id]['branchorder'], orders[branch])
+                else:
+                    orders[branch] = factionTree[id]['branchorder']
+
+                # set faction progress
+                sub = "1"
+                sub = "2" if id == "10" else sub  # chaining 1rt is No challenge
+                sub = "3" if id == "11" else sub  # capacity 1rt and 2nd is No challenge
+                sub = "2" if id == "12" else sub  # territory 1rt is No challenge
+                ch = tornTree[id][sub]['challengeprogress']
+                if ch[0] in ["age", "best_chain"]:
+                    factionTree[id]["challengedone"] = factionCall.get(ch[0], 0)
+                elif ch[0] in ["members"]:
+                    factionTree[id]["challengedone"] = len(factionCall.get(ch[0], [1, 2]))
+                elif ch[0] is None:
+                    factionTree[id]["challengedone"] = 0
+                else:
+                    factionTree[id]["challengedone"] = factionCall["stats"].get(ch[0], 0)
+
+            for k in factionTree:
+                factionTree[k]['branchorder'] = orders[factionTree[k]['branch']]
+
+            faction.factionTree = json.dumps(factionTree)
+            if reset:
+                print("[function.chain.updateFactionTree] set simuTree as faction tree")
+                faction.simuTree = faction.factionTree
+                faction.save()
+            faction.treeUpda = now
+            faction.respect = int(factionCall.get('respect', 0))
+            faction.save()
+
+    return json.loads(faction.factionTree), json.loads(faction.simuTree)
+
+
+def apiCallAttacksV2(breakdown):
+    # shortcuts
+    faction = breakdown.faction
+    tss = breakdown.tss
+    tse = breakdown.tse if breakdown.tse else int(timezone.now().timestamp())
+    # recompute last ts
+    tmp = breakdown.attack_set.order_by("-timestamp_ended").first()
+    if tmp is not None:
+        tsl = tmp.timestamp_ended
+    else:
+        tsl = breakdown.tss
+
+    print("[function.chain.apiCallAttacks] Breakdown from {} to {}. Live = {}".format(timestampToDate(tss), timestampToDate(tse), breakdown.live))
+
+    # add + 2 s to the endTS
+    tse += 2
+
+    # get existing attacks (just the ids)
+    attacks = [r.tId for r in breakdown.attack_set.all()]
+    print("[function.chain.apiCallAttacks] {} existing attacks".format(len(attacks)))
+
+    # get key
+    keys = faction.getAllPairs(enabledKeys=True)
+    if not len(keys):
+        print("[function.chain.apiCallAttacks] no key for faction {}   --> deleting breakdown".format(faction))
+        breakdown.delete()
+        return False, "no key in faction {} (delete contract)".format(faction)
+
+    keyHolder, key = random.choice(keys)
+
+    # make call
+    selection = "attacks,timestamp&from={}&to={}".format(tsl, tse)
+    req = apiCall("faction", faction.tId, selection, key, verbose=True)
+
+    # in case there is an API error
+    if "apiError" in req:
+        print('[function.chain.apiCallAttacks] api key error: {}'.format((req['apiError'])))
+        if req['apiErrorCode'] in API_CODE_DELETE:
+            print("[function.chain.apiCallAttacks]    --> deleting {}'s key'".format(keyHolder))
+            faction.delKey(keyHolder)
+        return False, "wrong master key in faction {} for user {} (blank turn)".format(faction, keyHolder)
+
+    # try to catch cache response
+    tornTS = int(req["timestamp"])
+    nowTS = int(timezone.now().timestamp())
+    cacheDiff = abs(nowTS - tornTS)
+
+    apiAttacks = req.get("attacks")
+
+    # in case empty payload
+    if not len(apiAttacks):
+        breakdown.computing = False
+        breakdown.save()
+        return False, "Empty payload (stop computing)"
+
+    print("[function.chain.apiCallAttacks] {} attacks from the API".format(len(apiAttacks)))
+
+    print("[function.chain.apiCallAttacks] start {}".format(timestampToDate(tss)))
+    print("[function.chain.apiCallAttacks] end {}".format(timestampToDate(tse)))
+    print("[function.chain.apiCallAttacks] last before the call {}".format(timestampToDate(tsl)))
+
+    newEntry = 0
+    for k, v in apiAttacks.items():
+        ts = int(v["timestamp_ended"])
+
+        # stop because out of bound
+        # probably because of cache
+        # if int(v["timestamp_started"]) < tsl or int(v["timestamp_ended"]) > tse:
+        #     print(ts)
+        #     print(tsl)
+        #     print(tse)
+        #     return False, "timestamp out of bound for faction {} with cacheDiff = {} (added {} entry before exiting)".format(faction, cacheDiff, newEntry)
+
+        if int(k) not in attacks:
+            for tmpKey in ["fairFight", "war", "retaliation", "groupAttack", "overseas", "chainBonus"]:
+                v[tmpKey] = float(v["modifiers"][tmpKey])
+            del v["modifiers"]
+            breakdown.attack_set.create(tId=int(k), **v)
+            newEntry += 1
+            tsl = max(tsl, ts)
+
+    print("[function.chain.apiCallAttacks] last after the call {}".format(timestampToDate(tsl)))
+
+    # compute contract variables
+    attacks = breakdown.attack_set.all()
+    # breakdown.revivesContract = len(revives)
+    # breakdown.first = revives.order_by("timestamp").first().timestamp
+    # breakdown.last = revives.order_by("-timestamp").first().timestamp
+
+    if not newEntry and len(apiAttacks) > 1:
+        return False, "No new entry for faction {} with cacheDiff = {} (continue)".format(faction, cacheDiff)
+
+    if len(apiAttacks) < 2 and not breakdown.live:
+        print("[function.chain.apiCallAttacks] no api entry for non live breakdown (stop)")
+        breakdown.computing = False
+
+    breakdown.save()
+    return True, "Everything's fine"
+
+
+def apiCallRevives(contract):
+    # shortcuts
+    faction = contract.faction
+    start = contract.start
+    end = contract.end if contract.end else int(timezone.now().timestamp())
+    # recompute last
+    tmp = contract.revive_set.order_by("-timestamp").first()
+    if tmp is not None:
+        last = tmp.timestamp
+    else:
+        last = contract.start
+
+    print("[function.chain.apiCallRevives] Contract from {} to {}".format(timestampToDate(start), timestampToDate(end)))
+
+    # add + 2 s to the endTS
+    end += 2
+
+    # get existing revives (just the ids)
+    revives = [r.tId for r in contract.revive_set.all()]
+    print("[function.chain.apiCallRevives] {} existing revives".format(len(revives)))
+
+    # # last timestamp
+    # if len(revives):
+    #     lastRevive = contract.revive_set.order_by("-timestamp").first()
+    #     last = lastRevive.timestamp
+    # else:
+    #     last = start
+
+    # get key
+    keys = faction.getAllPairs(enabledKeys=True)
+    if not len(keys):
+        print("[function.chain.apiCallRevives] no key for faction {}   --> deleting contract".format(faction))
+        contract.delete()
+        return False, "no key in faction {} (delete contract)".format(faction)
+
+    keyHolder, key = random.choice(keys)
+
+    # make call
+    selection = "revives,timestamp&from={}&to={}".format(last, end)
+    req = apiCall("faction", faction.tId, selection, key, verbose=True)
+
+    # in case there is an API error
+    if "apiError" in req:
+        print('[function.chain.apiCallRevives] api key error: {}'.format((req['apiError'])))
+        if req['apiErrorCode'] in API_CODE_DELETE:
+            print("[function.chain.apiCallRevives]    --> deleting {}'s key'".format(keyHolder))
+            faction.delKey(keyHolder)
+        return False, "wrong master key in faction {} for user {} (blank turn)".format(faction, keyHolder)
+
+    # try to catch cache response
+    tornTS = int(req["timestamp"])
+    nowTS = int(timezone.now().timestamp())
+    cacheDiff = abs(nowTS - tornTS)
+
+    apiRevives = req.get("revives")
+
+    # in case empty payload
+    if not len(apiRevives):
+        contract.computing = False
+        contract.save()
+        return False, "Empty payload (stop computing)"
+
+    print("[function.chain.apiCallRevives] {} revives from the API".format(len(apiRevives)))
+
+    print("[function.chain.apiCallRevives] start {}".format(timestampToDate(start)))
+    print("[function.chain.apiCallRevives] end {}".format(timestampToDate(end)))
+    print("[function.chain.apiCallRevives] last before the call {}".format(timestampToDate(last)))
+
+    newEntry = 0
+    for k, v in apiRevives.items():
+        ts = int(v["timestamp"])
+
+        # stop because out of bound
+        # probably because of cache
+        if ts < last or ts > end:
+            return False, "timestamp out of bound for faction {} with cacheDiff = {} (added {} entry before exiting)".format(faction, cacheDiff, newEntry)
+
+        if int(k) not in revives:
+            contract.revive_set.create(tId=int(k), **v)
+            newEntry += 1
+            last = max(last, ts)
+
+    print("[function.chain.apiCallRevives] last after the call {}".format(timestampToDate(last)))
+
+    # compute contract variables
+    revives = contract.revive_set.all()
+    contract.revivesContract = len(revives)
+    contract.first = revives.order_by("timestamp").first().timestamp
+    contract.last = revives.order_by("-timestamp").first().timestamp
+
+    if not newEntry and len(apiRevives) > 1:
+        return False, "No new entry for faction {} with cacheDiff = {} (continue)".format(faction, cacheDiff)
+
+    if len(apiRevives) < 2:
+        contract.computing = False
+
+    contract.save()
+    return True, "Everything's fine"

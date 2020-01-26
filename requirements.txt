@@ -1,10 +1,18 @@
-Django>=2.0
-requests>=2.18
-django-mathfilters>=0.4.0
-gunicorn>=19.7
-dj_database_url>=0.4.2
-psycopg2-binary==2.7.5
-whitenoise==3.3.1
-numpy==1.14.3
-scipy==1.2.0
-Pillow==5.3.0
+# core modules
+Django==3.0.1
+django-mathfilters==0.4.0
+requests==2.22.0
+
+# not needed for:
+# - development server (./manage.py runserver)
+# - sqlite3 database
+gunicorn==20.0.4
+psycopg2==2.8.4
+#psycopg2-binary==2.8.4
+
+# image modules
+Pillow==6.2.1
+
+# math modules
+numpy==1.18.0
+scipy==1.4.1

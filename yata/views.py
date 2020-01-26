@@ -22,26 +22,38 @@ from django.shortcuts import reverse
 from django.http import HttpResponse
 from django.http import HttpResponseRedirect
 from django.utils import timezone
+from django.conf import settings
 
 import json
+import os
 import traceback
 
-from player.models import Player
-from player.models import News
+from player.models import *
+from player.functions import updatePlayer
 from chain.models import Faction
-from yata.handy import apiCall
-from yata.handy import returnError
+from yata.handy import *
 
 
 def index(request):
     try:
+        allNews = News.objects.all().order_by("-date")
+        allDonations = Donation.objects.all().order_by("-pk")
         if request.session.get('player'):
             print('[view.yata.index] get player id from session')
             tId = request.session["player"].get("tId")
             player = Player.objects.filter(tId=tId).first()
-            context = {"player": player, 'allNews': News.objects.all().order_by("-date")}
+
+            # shouldn't happen
+            if player is None:
+                del request.session['player']
+                context = {'allNews': allNews, 'allDonations': allDonations}
+
+            player.lastActionTS = int(timezone.now().timestamp())
+            player.active = True
+            player.save()
+            context = {"player": player, 'allNews': allNews, 'allDonations': allDonations}
         else:
-            context = {'allNews': News.objects.all().order_by("-date")}
+            context = {'allNews': allNews, 'allDonations': allDonations}
 
         return render(request, 'yata.html', context)
 
@@ -56,10 +68,14 @@ def login(request):
         if request.method == 'POST':
             p = request.POST
             print('[view.yata.login] API call with key: {}'.format(p.get('key')))
-            user = apiCall('user', '', 'profile', p.get('key'))
-            if 'apiError' in user:
-                print('[view.yata.login] API error: {}'.format(user))
-                context = user
+            try:
+                user = apiCall('user', '', 'profile', p.get('key'))
+                if 'apiError' in user:
+                    print('[view.yata.login] API error: {}'.format(user))
+                    context = user
+                    return render(request, 'yata/login.html', context)
+            except BaseException as e:
+                context = {'apiError': e}
                 return render(request, 'yata/login.html', context)
 
             # create/update player in the database
@@ -70,10 +86,11 @@ def login(request):
                 print('[view.yata.login] create new player')
                 player = Player.objects.create(tId=int(user.get('player_id')))
             print('[view.yata.login] update player')
-            player.key = p.get('key')
-            player.update_info()
-            player.lastActionTS = int(timezone.now().timestamp())
-
+            player.addKey(p.get('key'))
+            # player.key = p.get('key')
+            player.active = True
+            player.lastActionTS = tsnow()
+            updatePlayer(player)
             print('[view.yata.login] save player')
             player.save()
 
@@ -103,8 +120,9 @@ def login(request):
 
 def logout(request):
     try:
-        print('[view.yata.logout] delete session')
-        del request.session['player']
+        if request.session.get('player'):
+            print('[view.yata.logout] delete session')
+            del request.session['player']
         return HttpResponseRedirect(reverse('index'))
 
     except Exception:
@@ -122,9 +140,10 @@ def delete(request):
             try:
                 faction.delKey(tId)
                 faction.save()
-            except:
+            except BaseException:
                 pass
             player.delete()
+            del request.session['player']
 
         print('[view.yata.delete] redirect to logout')
         return HttpResponseRedirect(reverse('logout'))
@@ -133,21 +152,11 @@ def delete(request):
         return returnError()
 
 
-def api(request):
+def analytics(request):
     try:
-        lastActions = dict({})
-        t = int(timezone.now().timestamp())
-        lastActions["hour"] = len(Player.objects.filter(lastActionTS__gte=(t - (3600))))
-        lastActions["day"] = len(Player.objects.filter(lastActionTS__gte=(t - (24 * 3600))))
-        lastActions["month"] = len(Player.objects.filter(lastActionTS__gte=(t - (31 * 24 * 3600))))
-        lastActions["total"] = len(Player.objects.all())
-        lastActions["string"] = "{} / {} / {}".format(lastActions["total"], lastActions["month"], lastActions["day"])
-        import time
-        time.sleep(10)
-        return HttpResponse(json.dumps(lastActions), content_type="application/json")
-    except:
+        fold = "analytics"
+        ls = sorted(os.listdir("{}/{}".format(settings.STATIC_ROOT, fold)))
+        context = {"reports": ls, 'view': {'analytics': True}}
+        return render(request, 'yata.html', context)
+    except BaseException:
         return returnError()
-
-
-def badges(request):
-    return render(request, "yata/badges.html")

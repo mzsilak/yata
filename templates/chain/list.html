@@ -24,29 +24,28 @@ This file is part of yata.
 
 <script>
     $(document).ready(function() {
-        $.tablesorter.addParser({
-            // set a unique id
-            id: 'ago-yata',
-            is: function(s, table, cell, $cell) {
-                // return false so this parser is not auto detected
-                return false;
-            },
-            format: function(s, table, cell, cellIndex) {
-                // format your data for normalization
-                var ret = s.toLowerCase()
-                .replace(/days/,86400)
-                .replace(/day/,86400)
-                .replace(/hrs/,3600)
-                .replace(/hr/,3600)
-                .replace(/mins/,60)
-                .replace(/min/,60).split(' ');
-                return String(parseInt(ret[1], 10)*parseInt(ret[0], 10));
-            },
-            // set type, either numeric or text
-            type: 'numeric',
-        });
+      $.tablesorter.addParser({
+          // set a unique id
+          id: 'ago',
+          is: function(s, table, cell, $cell) {
+              // return false so this parser is not auto detected
+              return false;
+          },
+          format: function(s, table, cell, cellIndex) {
+              // format your data for normalization
+              var ret = s.toLowerCase()
+              .replace(/days/,86400).replace(/day/,86400)
+              .replace(/hours/,3600).replace(/hour/,3600)
+              .replace(/hrs/,3600).replace(/hr/,3600)
+              .replace(/minutes/,60).replace(/minute/,60)
+              .replace(/mins/,60).replace(/min/,60).split(' ');
+              return String(parseInt(ret[1], 10)*parseInt(ret[0], 10));
+          },
+          // set type, either numeric or text
+          type: 'numeric',
+      });
 
-        $("#chain-list").tablesorter({headers: { 3: { sorter: 'ago-yata' }}, cssAsc: 'up', cssDesc: 'down', sortList: [[1,1]]});
+        $("#chain-list").tablesorter({headers: { 3: { sorter: 'ago' }}, cssAsc: 'up', cssDesc: 'down', sortList: [[1,1]]});
     });
 </script>
 
@@ -69,7 +68,11 @@ This file is part of yata.
         {% for chain in chains %}
         <tr>
             {% if chain.tId > 0 %}
-                <td class="a"><a href="https://www.torn.com/war.php?step=chainreport&chainID={{chain.tId}}" target="_blank">Chain [{{chain.tId}}]</a></td>
+                {% if chain.wall %}
+                    <td class="a"><a href="https://www.torn.com/war.php?step=warreport&warID={{chain.tId}}" target="_blank">Wall [{{chain.tId}}]</a></td>
+                {% else %}
+                    <td class="a"><a href="https://www.torn.com/war.php?step=chainreport&chainID={{chain.tId}}" target="_blank">Chain [{{chain.tId}}]</a></td>
+                {% endif %}
                 <td class="b">{{chain.start|ts2date}}</td>
                 <td class="b">{{chain.end|ts2date}}</td>
             {% else %}
@@ -81,7 +84,11 @@ This file is part of yata.
             <td class="c">{{chain.end|sub:chain.start|ts2time}}</td>
             <td class="d" title="{{chain.reportNHits}}/{{chain.nHits}}"><b>{{chain.nHits}}</b></td>
             <td class="d" ><b>{{chain.respect|floatformat:2}}</b></td>
-            <td class="d" ><b>{{chain.respect|div:chain.nHits|floatformat:2}}</b></td>
+            {% if chain.nHits %}
+                <td class="d" ><b>{{chain.respect|div:chain.nHits|floatformat:2}}</b></td>
+            {% else %}
+                <td class="d" ><b>-</b></td>
+            {% endif %}
             <td class="e" >
                 <div id="catch-buttons-{{chain.tId}}">
                     {% include "chain/list-buttons.html" %}

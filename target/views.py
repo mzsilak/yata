@@ -29,6 +29,7 @@ from yata.handy import returnError
 from player.models import Player
 from chain.functions import BONUS_HITS
 from target.functions import updateAttacks
+from target.functions import updateRevives
 from target.functions import convertElaspedString
 
 
@@ -39,10 +40,11 @@ def index(request):
             tId = request.session["player"].get("tId")
             player = Player.objects.filter(tId=tId).first()
             player.lastActionTS = int(timezone.now().timestamp())
-            player.save()
-            # error = updateAttacks(player)
+            player.active = True
 
             targets = json.loads(player.targetJson).get("targets", dict({}))
+            player.targetInfo = len(targets)
+            player.save()
 
             context = {"player": player, "targetcat": True, "targets": targets, "ts": int(timezone.now().timestamp()), "view": {"targets": True}}
             # if error:
@@ -92,9 +94,11 @@ def targets(request):
             tId = request.session["player"].get("tId")
             player = Player.objects.filter(tId=tId).first()
             player.lastActionTS = int(timezone.now().timestamp())
-            player.save()
             targetJson = json.loads(player.targetJson)
             targets = targetJson.get("targets") if "targets" in targetJson else dict({})
+
+            player.targetInfo = len(targets)
+            player.save()
 
             context = {"player": player, "targetcat": True, "targets": targets, "ts": int(timezone.now().timestamp()), "view": {"targets": True}}
             page = 'target/content-reload.html' if request.method == "POST" else 'target.html'
@@ -113,13 +117,13 @@ def toggleTarget(request, targetId):
             print('[view.target.toggleTarget] get player id from session and check POST')
             tId = request.session["player"].get("tId")
             player = Player.objects.filter(tId=tId).first()
-            key = player.key
+            key = player.getKey()
             targetJson = json.loads(player.targetJson)
             attacks = targetJson.get("attacks") if "attacks" in targetJson else dict({})
             targets = targetJson.get("targets") if "targets" in targetJson else dict({})
 
             # call for target info
-            targetInfo = apiCall('user', targetId, '', key)
+            targetInfo = apiCall('user', targetId, 'profile,timestamp', key)
             if 'apiError' in targetInfo:
                 level = 0
                 lifeMax = 1
@@ -133,10 +137,10 @@ def toggleTarget(request, targetId):
                 level = targetInfo["level"]
                 lifeMax = int(targetInfo["life"]["maximum"])
                 life = int(targetInfo["life"]["current"])
-                status = targetInfo["status"][0].replace("In hospital", "H")
-                statusFull = " ".join(targetInfo["status"])
+                status = targetInfo["status"]["description"].replace("In hospital", "H")
+                statusFull = "{} {}".format(targetInfo["status"]["description"], targetInfo["status"]["details"])
                 lastAction = convertElaspedString(targetInfo["last_action"]["relative"])
-                lastUpdate = int(timezone.now().timestamp())
+                lastUpdate = int(targetInfo.get("timestamp", timezone.now().timestamp()))
 
             if targetId not in targets:
                 print('[view.target.toggleTarget] create target {}'.format(targetId))
@@ -164,6 +168,7 @@ def toggleTarget(request, targetId):
 
             targetJson["targets"] = targets
             player.targetJson = json.dumps(targetJson)
+            player.targetInfo = len(targetJson)
             player.save()
 
             targets = targetJson.get("targets") if "targets" in targetJson else dict({})
@@ -185,16 +190,29 @@ def refresh(request, targetId):
             print('[view.target.refresh] get player id from session and check POST')
             tId = request.session["player"].get("tId")
             player = Player.objects.filter(tId=tId).first()
-            key = player.key
+            key = player.getKey()
             targetJson = json.loads(player.targetJson)
             attacks = targetJson.get("attacks", dict({}))
             targets = targetJson.get("targets", dict({}))
 
+            # when id is not an int...
+            try:
+                b = int(targetId)
+            except BaseException:
+                print("ERROR: targetId", targetId)
+                context = {"apiErrorLine": "Id is not an integer... please contact Kivou"}
+                return render(request, 'target/targets-line.html', context)
+
             # call for target info
             error = False
-            targetInfo = apiCall('user', targetId, '', key)
+            targetInfo = apiCall('user', targetId, 'profile,timestamp', key)
             if 'apiError' in targetInfo:
                 error = targetInfo
+
+            elif not str(targetInfo["player_id"]) == targetId:
+                print("ERROR: targetId != returned id", targetId, targetInfo["player_id"])
+                context = {"apiErrorLine": "API call returns wrong player ID. Id asked = {}, Id returned = {}".format(targetId, targetInfo["player_id"])}
+                return render(request, 'target/targets-line.html', context)
 
             else:
                 # get latest attack to target id
@@ -208,10 +226,10 @@ def refresh(request, targetId):
                 target["targetName"] = targetInfo["name"]
                 target["life"] = int(targetInfo["life"]["current"])
                 target["lifeMax"] = int(targetInfo["life"]["maximum"])
-                target["status"] = targetInfo["status"][0].replace("In hospital", "H")
-                target["statusFull"] = " ".join(targetInfo["status"])
+                target["status"] = targetInfo["status"]["description"].replace("In hospital", "H")
+                target["statusFull"] = "{} {}".format(targetInfo["status"]["description"], targetInfo["status"]["details"])
                 target["lastAction"] = convertElaspedString(targetInfo["last_action"]["relative"])
-                target["lastUpdate"] = int(timezone.now().timestamp())
+                target["lastUpdate"] = int(targetInfo.get("timestamp", timezone.now().timestamp()))
                 level = targetInfo["level"]
                 target["level"] = level
                 # if for some reason there is no entry
@@ -221,7 +239,7 @@ def refresh(request, targetId):
                 target["respect"] = target.get("fairFight", 1.0) * 0.25 * (math.log(level) + 1) if level else 0
 
                 for k, v in sorted(attacks.items(), key=lambda x: x[1]['timestamp_ended'], reverse=True):
-                    if int(v["defender_id"]) == int(targetId) and int(v["chain"]) not in BONUS_HITS:
+                    if str(v["defender_id"]) == str(targetId) and int(v["chain"]) not in BONUS_HITS:
                         print('[view.target.refresh] refresh traget last attack info')
                         target["targetName"] = v["defender_name"]
                         target["result"] = v["result"]
@@ -260,9 +278,10 @@ def updateNote(request):
             print('[view.target.updateNote] {}: {}'.format(targetId, note))
 
             targetJson = json.loads(player.targetJson)
-            targetJson["targets"][targetId]["note"] = note
-            player.targetJson = json.dumps(targetJson)
-            player.save()
+            if targetJson["targets"].get(targetId) is not None:
+                targetJson["targets"][targetId]["note"] = note
+                player.targetJson = json.dumps(targetJson)
+                player.save()
 
             context = {"target": {"note": note}, "targetId": targetId}
             return render(request, 'target/targets-line-note.html', context)
@@ -283,9 +302,11 @@ def delete(request, targetId):
             player = Player.objects.filter(tId=tId).first()
             targetJson = json.loads(player.targetJson)
 
-            del targetJson["targets"][targetId]
-            player.targetJson = json.dumps(targetJson)
-            player.save()
+            if targetJson.get("targets") is not None:
+                if targetJson["targets"].get(targetId) is not None:
+                    del targetJson["targets"][targetId]
+                    player.targetJson = json.dumps(targetJson)
+                    player.save()
 
             return render(request, 'target/targets-line.html')
 
@@ -303,7 +324,7 @@ def add(request):
             print('[view.target.add] get player id from session and check POST')
             tId = request.session["player"].get("tId")
             player = Player.objects.filter(tId=tId).first()
-            key = player.key
+            key = player.getKey()
             targetJson = json.loads(player.targetJson)
 
             targetId = request.POST.get("targetId")
@@ -318,7 +339,7 @@ def add(request):
 
             if not error:
                 # call for target info
-                targetInfo = apiCall('user', targetId, '', key)
+                targetInfo = apiCall('user', targetId, 'profile,timestamp', key)
                 if 'apiError' in targetInfo:
                     error = targetInfo.get("apiError", "error")
 
@@ -341,10 +362,10 @@ def add(request):
                                                      "level": level,
                                                      "lifeMax": int(targetInfo["life"]["maximum"]),
                                                      "life": int(targetInfo["life"]["current"]),
-                                                     "status": targetInfo["status"][0].replace("In hospital", "H"),
-                                                     "statusFull": " ".join(targetInfo["status"]),
+                                                     "status": targetInfo["status"]["description"].replace("In hospital", "H"),
+                                                     "statusFull": "{} {}".format(targetInfo["status"]["description"], targetInfo["status"]["details"]),
                                                      "lastAction": convertElaspedString(targetInfo["last_action"]["relative"]),
-                                                     "lastUpdate": int(timezone.now().timestamp()),
+                                                     "lastUpdate": int(targetInfo.get("timestamp", timezone.now().timestamp())),
                                                      "note": ""
                                                      }
                                 added = True
@@ -363,10 +384,10 @@ def add(request):
                                                  "level": level,
                                                  "lifeMax": int(targetInfo["life"]["maximum"]),
                                                  "life": int(targetInfo["life"]["current"]),
-                                                 "status": targetInfo["status"][0].replace("In hospital", "H"),
-                                                 "statusFull": " ".join(targetInfo["status"]),
+                                                 "status": targetInfo["status"]["description"].replace("In hospital", "H"),
+                                                 "statusFull": "{} {}".format(targetInfo["status"]["description"], targetInfo["status"]["details"]),
                                                  "lastAction": targetInfo["last_action"]["relative"],
-                                                 "lastUpdate": int(timezone.now().timestamp()),
+                                                 "lastUpdate": int(targetInfo.get("timestamp", timezone.now().timestamp())),
                                                  "note": ""}
 
                         targetJson["targets"] = targets
@@ -380,6 +401,55 @@ def add(request):
             if error:
                 context.update({"apiErrorAdd": error})
             return render(request, 'target/content-reload.html', context)
+
+        else:
+            message = "You might want to log in." if request.method == "POST" else "You need to post. Don\'t try to be a smart ass."
+            return returnError(type=403, msg=message)
+
+    except Exception:
+        return returnError()
+
+
+def revives(request):
+    try:
+        if request.session.get('player'):
+            print('[view.traget.attacks] get player id from session')
+            tId = request.session["player"].get("tId")
+            player = Player.objects.filter(tId=tId).first()
+            player.lastActionTS = int(timezone.now().timestamp())
+            player.save()
+
+            error = updateRevives(player)
+
+            revives = player.revive_set.all()
+
+            context = {"player": player, "targetcat": True, "revives": revives, "view": {"revives": True}}
+            if error:
+                context.update(error)
+
+            page = 'target/content-reload.html' if request.method == "POST" else 'target.html'
+            return render(request, page, context)
+
+        else:
+            return returnError(type=403, msg="You might want to log in.")
+
+    except Exception:
+        return returnError()
+
+
+def toggleRevive(request):
+    try:
+        if request.session.get('player') and request.method == "POST":
+            print('[view.target.toggleRevive] get player id from session and check POST')
+            tId = request.session["player"].get("tId")
+            player = Player.objects.filter(tId=tId).first()
+
+            r = player.revive_set.filter(tId=request.POST.get("reviveId", 0)).first()
+            if r is not None:
+                r.paid = not r.paid
+                r.save()
+
+            return render(request, 'target/revives-buttons.html', {"revive": r})
 
         else:
             message = "You might want to log in." if request.method == "POST" else "You need to post. Don\'t try to be a smart ass."

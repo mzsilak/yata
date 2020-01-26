@@ -1,0 +1,42 @@
+{% comment %}
+Copyright 2019 kivou.2000607@gmail.com
+
+This file is part of yata.
+
+    yata is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    yata is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with yata. If not, see <https://www.gnu.org/licenses/>.
+{% endcomment %}
+
+
+<h2 class="title">Servers hosting the official YATA bot</h2>
+<div class="module">
+    <table class="center">
+        <thead>
+            <tr>
+                <th>Server name</th>
+                <th>Server id</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for name, id in guilds %}
+            <tr>
+                <td>{{name}}</td>
+                <td><tt>{{id}}</tt></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <ul>
+    </ul>
+</div>

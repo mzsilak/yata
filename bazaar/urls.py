@@ -9,6 +9,7 @@ urlpatterns = [
     re_path(r'^custom/$', views.custom, name='custom'),
     re_path(r'^sets/$', views.sets, name='sets'),
     re_path(r'^all/$', views.all, name='all'),
+    re_path(r'^top10/$', views.top10, name='top10'),
 
     re_path(r'^update/(?P<itemId>\w+)$', views.update, name='update'),
     # re_path(r'^update/type/(?P<tType>\w+)$', views.updateType, name='updateType'),
@@ -16,6 +17,7 @@ urlpatterns = [
 
     re_path(r'^toggle/(?P<itemId>\w+)$', views.toggle, name='toggle'),
     re_path(r'^details/(?P<itemId>\w+)$', views.details, name='details'),
+    re_path(r'^prices/(?P<itemId>\w+)$', views.prices, name='prices'),
 
     # re_path(r'^logout/$', views.logout, name='logout'),
     # re_path(r'^updateKey/$', views.updateKey, name='updateKey'),
@@ -24,4 +26,4 @@ urlpatterns = [
     # re_path(r'^details/$', views.details, name='details'),
 
     # path('<int:tId>', views.details, name='details'),
-    ]
+]

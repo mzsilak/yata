@@ -20,21 +20,11 @@ This file is part of yata.
 from django.db import models
 from django.utils import timezone
 
+import json
+import math
+from scipy import stats
+
 from yata.handy import apiCall
-
-
-class Preference(models.Model):
-    # autorisedId = models.CharField(default="", max_length=200)
-    key = models.CharField(default="", max_length=16)
-    nItems = models.IntegerField(default=10)
-    lastScanTS = models.IntegerField(default=0)
-    apiString = models.CharField(default="0", max_length=330)  # for 10 pairs login(15):key(16)
-
-    def get_random_key(self):
-        from numpy.random import randint
-        pairs = self.apiString.split(",")
-        i = randint(0, len(pairs))
-        return pairs[i].split(":")
 
 
 class Item(models.Model):
@@ -57,6 +47,13 @@ class Item(models.Model):
     stockI = models.IntegerField(default=0)
     stockD = models.IntegerField(default=0)
     stockB = models.IntegerField(default=0)
+    priceHistory = models.TextField(default={})  # dictionary {timestamp: marketValue}
+    weekTendency = models.FloatField(default=0.0)
+    weekTendencyA = models.FloatField(default=0.0)
+    weekTendencyB = models.FloatField(default=0.0)
+    monthTendency = models.FloatField(default=0.0)
+    monthTendencyA = models.FloatField(default=0.0)
+    monthTendencyB = models.FloatField(default=0.0)
 
     def __str__(self):
         return "[{}] {}".format(self.tId, self.tName)
@@ -76,6 +73,81 @@ class Item(models.Model):
                    tRequirement=v['requirement'],
                    tImage=v['image'])
         return item
+
+    def updateTendencies(self):
+        priceHistory = json.loads(self.priceHistory)
+        ts = 0
+        for t, p in priceHistory.items():
+            ts = max(ts, int(t))
+
+        # week Tendency
+        try:
+            x = []
+            y = []
+            for t, p in priceHistory.items():
+                if ts - int(t) < 3600 * 24 * 7 + 30 and int(p):
+                    x.append(int(t))
+                    y.append(int(p))
+            # print(len(x), x)
+            if(len(x) > 1):
+                a, b, _, _, _ = stats.linregress(x, y)
+                if math.isnan(a) or math.isnan(b):
+                    self.weekTendencyA = 0.0
+                    self.weekTendencyB = 0.0
+                    self.weekTendency = 0.0
+                else:
+                    self.weekTendencyA = a  # a is in $/s
+                    self.weekTendencyB = b
+                    # time = abs(x[0] - x[-1])
+                    # mean = abs(0.5 * a * (x[0] + x[-1]) + b)
+                    # self.weekTendency = a * time / float(mean)
+                    self.weekTendency = a * 3600 * 24 * 7 / float(y[-1])
+            else:
+                self.weekTendencyA = 0.0
+                self.weekTendencyB = 0.0
+                self.weekTendency = 0.0
+        except BaseException as e:
+            self.weekTendencyA = 0.0
+            self.weekTendencyB = 0.0
+            self.weekTendency = 0.0
+        print("[model.bazaar.item] week tendancy:", self.weekTendencyA, self.weekTendencyB, self.weekTendency)
+
+        # month Tendency
+        try:
+            x = []
+            y = []
+            for t, p in priceHistory.items():
+                if ts - int(t) < 3600 * 24 * 31 + 30 and int(p):
+                    x.append(int(t))
+                    y.append(int(p))
+            if(len(x) > 1):
+                a, b, _, _, _ = stats.linregress(x, y)
+                # print(a, b)
+                if math.isnan(a) or math.isnan(b):
+                    self.monthTendencyA = 0.0
+                    self.monthTendencyB = 0.0
+                    self.monthTendency = 0.0
+                else:
+                    self.monthTendencyA = a  # a is in $/s
+                    self.monthTendencyB = b
+                    # time = abs(x[0] - x[-1])
+                    # mean = abs(0.5 * a * (x[0] + x[-1]) + b)
+                    # self.monthTendency = a * time / float(mean)
+                    self.monthTendency = a * 3600 * 24 * 7 / float(y[-1])
+            else:
+                self.monthTendencyA = 0.0
+                self.monthTendencyB = 0.0
+                self.monthTendency = 0.0
+        except BaseException as e:
+            self.monthTendencyA = 0.0
+            self.monthTendencyB = 0.0
+            self.monthTendency = 0.0
+        print("[model.bazaar.item] month tendancy:", self.monthTendencyA, self.monthTendencyB, self.monthTendency)
+
+        # print(self.monthTendency, self.monthTendencyA, self.monthTendencyB)
+        # self.lastUpdateTS =
+        # self.date = timezone.now() # don't update time since bazaar are not updated
+        self.save()
 
     def update(self, v):
         # v = {'name': 'Kitchen Knife',
@@ -97,8 +169,21 @@ class Item(models.Model):
         self.tEffect = v['effect'],
         self.tRequirement = v['requirement'],
         self.tImage = v['image']
-        # self.lastUpdateTS = int(timezone.now().timestamp())
-        # self.date = timezone.now() # don't update time since bazaar are not updated
+        priceHistory = json.loads(self.priceHistory)
+        ts = int(v.get('timestamp', timezone.now().timestamp()))
+        ts = int(ts) - int(ts) % 3600  # get the hour rounding
+        to_del = []
+        for t, p in priceHistory.items():
+            if ts - int(t) > 3600 * 24 * 31:
+                to_del.append(t)
+
+        for t in to_del:
+            print("[model.bazaar.item] remove history entry {}: {}".format(t, priceHistory[t]))
+            del priceHistory[t]
+
+        priceHistory[ts] = int(v["market_value"])
+        self.priceHistory = json.dumps(priceHistory)
+        self.updateTendencies()
         self.save()
 
     def display_small(self):
@@ -134,13 +219,13 @@ class Item(models.Model):
                               'cumulative': int(float(bData[i].quantity) * float(bData[i].cost)) + tmp}
                              )
                 tmp = cData[i]["cumulative"]
-        except:
+        except BaseException:
             cData = []
         return cData
 
     def update_bazaar(self, key="", n=10):
         # API Call
-        req = apiCall("market", self.tId, "bazaar,itemmarket", key)
+        req = apiCall("market", self.tId, "bazaar,itemmarket,timestamp", key)
         bazaar = req.get("bazaar") if req.get("bazaar") else dict({})
         itemmarket = req.get("itemmarket") if req.get("itemmarket") else dict({})
 
@@ -151,12 +236,12 @@ class Item(models.Model):
         else:
             # fuse both
             marketData = []
-            for k, v in bazaar.items():
+            for v in bazaar:
                 marketData.append({"cost": v["cost"], "quantity": v["quantity"], "itemmarket": False})
 
-            pp = 0 # previews price
-            q = 0 # quantity
-            for i, (k, v) in enumerate(itemmarket.items()):
+            pp = 0  # previews price
+            q = 0  # quantity
+            for i, v in enumerate(itemmarket):
                 pp = v["cost"] if i == 0 else pp
                 if v["cost"] == pp:
                     q += 1
@@ -174,7 +259,7 @@ class Item(models.Model):
                 self.marketdata_set.create(quantity=v["quantity"], cost=v["cost"], itemmarket=v["itemmarket"])
                 if i >= n - 1:
                     break
-            self.lastUpdateTS = int(timezone.now().timestamp())
+            self.lastUpdateTS = int(req.get('timestamp', timezone.now().timestamp()))
             self.save()
             return marketData
 
@@ -186,4 +271,10 @@ class MarketData(models.Model):
     itemmarket = models.BooleanField(default=False)
 
     def __str__(self):
-        return "{} ({}): {} x {}".format(self.item, self.sellId, self.quantity, self.cost)
+        return "{}: {} x {}".format(self.item, self.quantity, self.cost)
+
+
+class BazaarData(models.Model):
+    nItems = models.IntegerField(default=10)
+    lastScanTS = models.IntegerField(default=0)
+    itemType = models.TextField(default="{}")

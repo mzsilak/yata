@@ -16,9 +16,13 @@ This file is part of yata.
     You should have received a copy of the GNU General Public License
     along with yata. If not, see <https://www.gnu.org/licenses/>.
 """
+from django.utils import timezone
+
 from player.models import News
 from player.models import Player
-from django.utils import timezone
+from player.models import Message
+from player.models import SECTION_CHOICES
+from loot.models import NPC
 
 
 def news(request):
@@ -29,9 +33,33 @@ def news(request):
         news = False if news in player.news_set.all() or news.date > (timezone.datetime.now(timezone.utc) + timezone.timedelta(weeks=2)) else news
         return {"lastNews": news}
     else:
-        print("[yata.context_processors.news] out")
         return {}
 
 
-# def currentTimestamp(request):
-#     return {"currentTimestamp": int(timezone.now().timestamp())}
+def sectionMessage(request):
+    if request.session.get('player'):
+        section = request.get_full_path().split("/")[1]
+        # HACK because faction is under /chain/
+        section = 'faction' if section == 'chain' else section
+        section_short = ""
+        for k, v in SECTION_CHOICES:
+            if v == section:
+                section_short = k
+        sectionMessage = Message.objects.filter(section=section_short).order_by("date").last()
+        if sectionMessage is not None:
+            return {"sectionMessage": sectionMessage}
+        else:
+            return {"sectionMessage": False}
+    else:
+        return {}
+
+
+def nextLoot(request):
+    try:
+        # get smaller due time
+        due = int(timezone.now().timestamp())
+        for npc in NPC.objects.filter(show=True).order_by('tId'):
+            due = max(min(npc.lootTimings(lvl=4)["due"], due), 0)
+        return {"nextLoot": due}
+    except BaseException:
+        return {"nextLoot": 0}

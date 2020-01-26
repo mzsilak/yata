@@ -1,0 +1,57 @@
+{% comment %}
+Copyright 2019 kivou.2000607@gmail.com
+
+This file is part of yata.
+
+    yata is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    yata is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with yata. If not, see <https://www.gnu.org/licenses/>.
+{% endcomment %}
+
+<!-- categories -->
+<form>
+    {% csrf_token %}
+<table class="center tdshadow stock-categories">
+    <tbody>
+    <tr>
+        <td>
+            <a href="{% url 'stock:list' 'all' %}"><i class="fas fa-chart-line"></i>&nbsp;&nbsp;All stocks</a>
+        </td>
+        {% if player.tId > 0 %}
+        <td>
+          <a href="{% url 'stock:list' 'my' %}"><i class="fas fa-user-check"></i>&nbsp;&nbsp;My blocks</a>
+        </td>
+        {% endif %}
+        <td>
+            <a href="{% url 'stock:list' 'lo' %}"><i class="fas fa-battery-quarter"></i>&nbsp;&nbsp;<1%</a>
+        </td>
+        <td>
+            <a href="{% url 'stock:list' 'ns' %}"><i class="fas fa-battery-empty"></i>&nbsp;&nbsp;No Shares</a>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <a href="{% url 'stock:list' 'hd' %}"><i class="fas fa-thermometer-full"></i>&nbsp;&nbsp;High demand</a>
+        </td>
+        <td>
+            <a href="{% url 'stock:list' 'ld' %}"><i class="fas fa-thermometer-quarter"></i>&nbsp;&nbsp;Low demand</a>
+        </td>
+        <td>
+            <a href="{% url 'stock:list' 'gf' %}"><i class="fas fa-sun"></i>&nbsp;&nbsp;Good forecast</a>
+        </td>
+        <td>
+            <a href="{% url 'stock:list' 'pf' %}"><i class="fas fa-cloud-showers-heavy"></i>&nbsp;&nbsp;Poor forecast</a>
+        </td>
+    </tr>
+    </tbody>
+</table>
+</form>

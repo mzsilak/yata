@@ -1,11 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
 {% load app_filters %}
-
-{% block css%}
-    <link rel="stylesheet" type="text/css" href={% static "perso/css/yata.css" %} />
-    <link rel="stylesheet" type="text/css" href={% static "perso/css/bazaar.css" %} />
-{% endblock%}
 
 {% block title%}
     - Home
@@ -21,7 +15,7 @@
             check: $("#yata-login-remember").is(':checked'),
             csrfmiddlewaretoken: document.getElementsByName('csrfmiddlewaretoken')[0].value,
         });
-        reload.html('<h2 class="title grey"><i class="fas fa-spinner fa-pulse"></i>&nbsp;&nbsp;Connecting to API (1 API call)</h2><div class="module"><i class="fas fa-spinner fa-pulse"></i></div>');
+        reload.find("td.d").html('<span class="login-message"><i class="fas fa-spinner fa-pulse"></i>&nbsp;&nbsp;Connecting to API (1 API call)</span>');
     });
 
     $(document).on('click', '#yata-delete-submit', function(e){
@@ -31,50 +25,16 @@
         }
     });
 
-    $(document).ready(function(){
-        $("#badges").load("badges");
-    });
+    // $(document).ready(function(){
+    //     $("#badges").load("badges");
+    // });
 
 </script>
 {% endblock %}
 
 {% block content %}
-
-    <!-- <h2 class="title">What is YATA</h2> -->
-    <div class="module rounded">
-        <p><b>YATA</b> stands for <b>Y</b>et <b>A</b>nother <b>T</b>orn <b>A</b>pp.
-            It has been designed to enhance your gameplay using information from the <a href="http://api.torn.com" target="_blank">official Torn API</a>.<br />
-            To see what's in there, sign in and browse through the following categories.
-        </p>
-        <p><a class="yata-link-bazaar" href="{% url 'bazaar:index' %}"><i class="fas fa-store"></i>&nbsp;&nbsp;<b>Bazaar overview</b></a>: Look at the current bazaar prices to sell or buy at the best prices.</p>
-        <p><a class="yata-link-chain" href="{% url 'chain:index' %}"><i class="fas fa-fist-raised"></i>&nbsp;&nbsp;<b>Faction</b></a>: Build your chain reports, join them together and monitor the faction.</p>
-        <p><a class="yata-link-target" href="{% url 'target:index' %}"><i class="fas fa-crosshairs"></i>&nbsp;&nbsp;<b>Targets</b></a>: Remember your good targets and maximize your respect gains during chains.</p>
-        <p><a class="yata-link-awards" href="{% url 'awards:index' %}"><i class="fas fa-medal"></i>&nbsp;&nbsp;<b>Awards</b></a>: Track the next award you can get.</p>
-        {% if player %}
-            <hr class="sep">
-            <p><a id="yata-delete-submit" class="error" href="{% url 'delete' %}"><i class="fas fa-user-slash"></i></i>&nbsp;&nbsp;Delete account: </a> All your information will be removed from the database.</p>
-        {% endif %}
+    <div id="content-update">
+        {% include "yata/content-reload.html" %}
     </div>
-    <div class="module rounded">
-        <p id="badges"></p>
-
-        <p><b>YATA</b> is an open source website developped and maintained by {{"Kivou"|playerURL:"2000607"|safe}}.
-            Source code can be found <a href="https://github.com/Kivou-2000607/yata" target="_blank"><i class="fab fa-github"></i> here</a>.<br />
-            For suggestions and bug reports you can either <a href="https://github.com/Kivou-2000607/yata/issues" target="_blank">post an issue</a>, join the <a href="https://discord.gg/tZaYpbG" target="_blank">discord</a> or use the <a href="https://www.torn.com/forums.php#/p=threads&f=67&t=16100118&b=0&a=0" target="_blank">forum thread</a>.
-        </p>
-    </div>
-
-    {% if allNews|length %}
-        <div class="catch-me">
-            <h2 class="title grey toggle-display rounded"><i class="far fa-calendar-check"></i>&nbsp;&nbsp;News feed&nbsp;&nbsp;<i class="fas fa-caret-right"></i></h2>
-            <div class="module tutorial" style="display: none;">
-                <ul>
-                {% for news in allNews %}
-                    <li><b>{{ news.type }}</b> of {{ news.date }}: {{ news.text|safe }}&nbsp;&nbsp;{{news.authorName|playerURL:news.authorId|safe}}</li>
-                {% endfor %}
-                </ul>
-            </div>
-        </div>
-    {% endif %}
 
 {% endblock %}
